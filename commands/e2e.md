@@ -320,6 +320,28 @@ For PMX, prioritize these E2E tests:
 - ❌ Skip artifact review on failures
 - ❌ Test every edge case with E2E (use unit tests)
 
+## Web Component Selectors (Shopify Polaris)
+
+When testing apps using Shopify Polaris Web Components (`s-*` prefix):
+
+```typescript
+// Prefer: tag + data-testid
+page.locator('s-text-field[data-testid="email"]')
+page.locator('s-button[data-testid="submit"]')
+
+// Also valid: tag + attribute
+page.locator('s-button[variant="primary"]')
+page.locator('s-banner[status="critical"]')
+
+// Get attribute values from Web Components
+const errorMsg = await page.locator('s-text-field').getAttribute('error')
+const pageTitle = await page.locator('s-page').getAttribute('title')
+
+// Check component states
+await expect(page.locator('s-button[loading]')).toBeVisible()
+await expect(page.locator('s-spinner')).toBeHidden()
+```
+
 ## Important Notes
 
 **CRITICAL for PMX:**

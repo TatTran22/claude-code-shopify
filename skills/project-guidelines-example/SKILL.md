@@ -2,7 +2,7 @@
 
 This is an example of a project-specific skill. Use this as a template for your own projects.
 
-Based on a real production application: [Zenith](https://zenith.chat) - AI-powered customer discovery platform.
+Based on a Shopify embedded application with Go backend and React frontend.
 
 ---
 
@@ -20,34 +20,35 @@ Reference this skill when working on the specific project it's designed for. Pro
 ## Architecture Overview
 
 **Tech Stack:**
-- **Frontend**: Next.js 15 (App Router), TypeScript, React
-- **Backend**: FastAPI (Python), Pydantic models
-- **Database**: Supabase (PostgreSQL)
-- **AI**: Claude API with tool calling and structured output
-- **Deployment**: Google Cloud Run
-- **Testing**: Playwright (E2E), pytest (backend), React Testing Library
+- **Frontend**: React 19 + Vite 7, TypeScript, Shopify Polaris Web Components
+- **Backend**: Go 1.21+ with Chi router
+- **Database**: PostgreSQL 17 with pgx
+- **Cache**: Redis 7
+- **Queue**: RabbitMQ 3.12
+- **Shopify**: OAuth, GraphQL Admin API, Webhooks
+- **Testing**: Vitest (frontend), Go testing (backend)
 
 **Services:**
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         Frontend                            │
-│  Next.js 15 + TypeScript + TailwindCSS                     │
-│  Deployed: Vercel / Cloud Run                              │
+│                    Shopify Admin (iframe)                   │
+│  React 19 + Vite + Polaris Web Components + App Bridge      │
+│  Deployed: Vercel / Cloud Run / Fly.io                      │
 └─────────────────────────────────────────────────────────────┘
-                              │
+                              │ Session Token
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                         Backend                             │
-│  FastAPI + Python 3.11 + Pydantic                          │
-│  Deployed: Cloud Run                                       │
+│                         Go Backend                          │
+│  Chi Router + pgx + Redis + RabbitMQ                        │
+│  Deployed: Cloud Run / Fly.io / Railway                     │
 └─────────────────────────────────────────────────────────────┘
                               │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-        ┌──────────┐   ┌──────────┐   ┌──────────┐
-        │ Supabase │   │  Claude  │   │  Redis   │
-        │ Database │   │   API    │   │  Cache   │
-        └──────────┘   └──────────┘   └──────────┘
+              ┌───────────────┼───────────────┬───────────────┐
+              ▼               ▼               ▼               ▼
+        ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+        │PostgreSQL│   │  Redis   │   │ RabbitMQ │   │ Shopify  │
+        │   17     │   │    7     │   │   3.12   │   │   API    │
+        └──────────┘   └──────────┘   └──────────┘   └──────────┘
 ```
 
 ---
@@ -56,32 +57,41 @@ Reference this skill when working on the specific project it's designed for. Pro
 
 ```
 project/
-├── frontend/
+├── cmd/
+│   └── server/
+│       └── main.go           # Application entry point
+│
+├── internal/
+│   ├── config/               # Configuration loading
+│   ├── handler/              # HTTP handlers
+│   │   ├── auth.go           # OAuth handlers
+│   │   ├── products.go       # Product API handlers
+│   │   └── webhooks.go       # Webhook handlers
+│   ├── middleware/           # Chi middleware
+│   │   ├── auth.go           # Session token validation
+│   │   ├── logging.go        # Request logging
+│   │   └── recovery.go       # Panic recovery
+│   ├── service/              # Business logic
+│   ├── repository/           # Data access (pgx)
+│   ├── shopify/              # Shopify integration
+│   │   ├── oauth.go          # OAuth flow
+│   │   ├── graphql.go        # GraphQL client
+│   │   └── webhook.go        # Webhook verification
+│   └── queue/                # RabbitMQ
+│       ├── producer.go       # Message publishing
+│       └── consumer.go       # Worker consumers
+│
+├── web/                      # React frontend
 │   └── src/
-│       ├── app/              # Next.js app router pages
-│       │   ├── api/          # API routes
-│       │   ├── (auth)/       # Auth-protected routes
-│       │   └── workspace/    # Main app workspace
+│       ├── pages/            # React Router pages
 │       ├── components/       # React components
-│       │   ├── ui/           # Base UI components
-│       │   ├── forms/        # Form components
-│       │   └── layouts/      # Layout components
-│       ├── hooks/            # Custom React hooks
-│       ├── lib/              # Utilities
-│       ├── types/            # TypeScript definitions
-│       └── config/           # Configuration
+│       ├── hooks/            # Custom hooks (TanStack Query)
+│       ├── lib/              # Utilities, API client
+│       ├── queries/          # Query key factories
+│       └── types/            # TypeScript definitions
 │
-├── backend/
-│   ├── routers/              # FastAPI route handlers
-│   ├── models.py             # Pydantic models
-│   ├── main.py               # FastAPI app entry
-│   ├── auth_system.py        # Authentication
-│   ├── database.py           # Database operations
-│   ├── services/             # Business logic
-│   └── tests/                # pytest tests
-│
+├── migrations/               # PostgreSQL migrations
 ├── deploy/                   # Deployment configs
-├── docs/                     # Documentation
 └── scripts/                  # Utility scripts
 ```
 
@@ -89,129 +99,169 @@ project/
 
 ## Code Patterns
 
-### API Response Format (FastAPI)
+### API Response Format (Go)
 
-```python
-from pydantic import BaseModel
-from typing import Generic, TypeVar, Optional
+```go
+package handler
 
-T = TypeVar('T')
+import (
+    "encoding/json"
+    "net/http"
+)
 
-class ApiResponse(BaseModel, Generic[T]):
-    success: bool
-    data: Optional[T] = None
-    error: Optional[str] = None
-
-    @classmethod
-    def ok(cls, data: T) -> "ApiResponse[T]":
-        return cls(success=True, data=data)
-
-    @classmethod
-    def fail(cls, error: str) -> "ApiResponse[T]":
-        return cls(success=False, error=error)
-```
-
-### Frontend API Calls (TypeScript)
-
-```typescript
-interface ApiResponse<T> {
-  success: boolean
-  data?: T
-  error?: string
+type ApiResponse[T any] struct {
+    Success bool   `json:"success"`
+    Data    T      `json:"data,omitempty"`
+    Error   string `json:"error,omitempty"`
 }
 
-async function fetchApi<T>(
-  endpoint: string,
-  options?: RequestInit
-): Promise<ApiResponse<T>> {
-  try {
-    const response = await fetch(`/api${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+func RespondJSON[T any](w http.ResponseWriter, status int, data T) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(ApiResponse[T]{
+        Success: true,
+        Data:    data,
     })
+}
 
-    if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` }
-    }
-
-    return await response.json()
-  } catch (error) {
-    return { success: false, error: String(error) }
-  }
+func RespondError(w http.ResponseWriter, status int, err string) {
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(status)
+    json.NewEncoder(w).Encode(ApiResponse[any]{
+        Success: false,
+        Error:   err,
+    })
 }
 ```
 
-### Claude AI Integration (Structured Output)
-
-```python
-from anthropic import Anthropic
-from pydantic import BaseModel
-
-class AnalysisResult(BaseModel):
-    summary: str
-    key_points: list[str]
-    confidence: float
-
-async def analyze_with_claude(content: str) -> AnalysisResult:
-    client = Anthropic()
-
-    response = client.messages.create(
-        model="claude-sonnet-4-5-20250514",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": content}],
-        tools=[{
-            "name": "provide_analysis",
-            "description": "Provide structured analysis",
-            "input_schema": AnalysisResult.model_json_schema()
-        }],
-        tool_choice={"type": "tool", "name": "provide_analysis"}
-    )
-
-    # Extract tool use result
-    tool_use = next(
-        block for block in response.content
-        if block.type == "tool_use"
-    )
-
-    return AnalysisResult(**tool_use.input)
-```
-
-### Custom Hooks (React)
+### Frontend API Calls (TanStack Query)
 
 ```typescript
-import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getSessionToken } from '@shopify/app-bridge/utilities'
 
-interface UseApiState<T> {
-  data: T | null
-  loading: boolean
-  error: string | null
+// Query key factory
+export const productKeys = {
+  all: ['products'] as const,
+  lists: () => [...productKeys.all, 'list'] as const,
+  list: (filters: ProductFilters) => [...productKeys.lists(), filters] as const,
+  details: () => [...productKeys.all, 'detail'] as const,
+  detail: (id: string) => [...productKeys.details(), id] as const,
 }
 
-export function useApi<T>(
-  fetchFn: () => Promise<ApiResponse<T>>
-) {
-  const [state, setState] = useState<UseApiState<T>>({
-    data: null,
-    loading: false,
-    error: null,
+// Fetch with session token
+async function fetchWithAuth<T>(endpoint: string): Promise<T> {
+  const token = await getSessionToken(app)
+  const response = await fetch(`/api${endpoint}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
   })
 
-  const execute = useCallback(async () => {
-    setState(prev => ({ ...prev, loading: true, error: null }))
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
 
-    const result = await fetchFn()
+  const data = await response.json()
+  if (!data.success) {
+    throw new Error(data.error)
+  }
 
-    if (result.success) {
-      setState({ data: result.data!, loading: false, error: null })
-    } else {
-      setState({ data: null, loading: false, error: result.error! })
+  return data.data
+}
+
+// Hook usage
+export function useProducts(filters: ProductFilters) {
+  return useQuery({
+    queryKey: productKeys.list(filters),
+    queryFn: () => fetchWithAuth<Product[]>(`/products?${new URLSearchParams(filters)}`),
+  })
+}
+```
+
+### Shopify Webhook Handler (Go)
+
+```go
+package handler
+
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/base64"
+    "io"
+    "net/http"
+)
+
+func (h *WebhookHandler) VerifyHMAC(r *http.Request) bool {
+    body, _ := io.ReadAll(r.Body)
+
+    mac := hmac.New(sha256.New, []byte(h.shopifySecret))
+    mac.Write(body)
+    expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+    return hmac.Equal(
+        []byte(r.Header.Get("X-Shopify-Hmac-SHA256")),
+        []byte(expected),
+    )
+}
+
+func (h *WebhookHandler) HandleOrderCreate(w http.ResponseWriter, r *http.Request) {
+    if !h.VerifyHMAC(r) {
+        RespondError(w, http.StatusUnauthorized, "Invalid HMAC")
+        return
     }
-  }, [fetchFn])
 
-  return { ...state, execute }
+    // Publish to queue for async processing
+    h.queue.Publish("orders.created", r.Body)
+
+    w.WriteHeader(http.StatusOK)
+}
+```
+
+### Repository Pattern (Go + pgx)
+
+```go
+package repository
+
+import (
+    "context"
+    "github.com/jackc/pgx/v5/pgxpool"
+)
+
+type SessionRepository interface {
+    GetByShop(ctx context.Context, shop string) (*Session, error)
+    Upsert(ctx context.Context, session *Session) error
+    Delete(ctx context.Context, shop string) error
+}
+
+type sessionRepo struct {
+    pool *pgxpool.Pool
+}
+
+func NewSessionRepository(pool *pgxpool.Pool) SessionRepository {
+    return &sessionRepo{pool: pool}
+}
+
+func (r *sessionRepo) GetByShop(ctx context.Context, shop string) (*Session, error) {
+    var session Session
+    err := r.pool.QueryRow(ctx, `
+        SELECT id, shop, access_token, scope, created_at
+        FROM sessions
+        WHERE shop = $1
+    `, shop).Scan(
+        &session.ID,
+        &session.Shop,
+        &session.AccessToken,
+        &session.Scope,
+        &session.CreatedAt,
+    )
+
+    if err != nil {
+        return nil, err
+    }
+
+    return &session, nil
 }
 ```
 
@@ -219,65 +269,78 @@ export function useApi<T>(
 
 ## Testing Requirements
 
-### Backend (pytest)
+### Backend (Go)
 
 ```bash
 # Run all tests
-poetry run pytest tests/
+go test ./...
 
 # Run with coverage
-poetry run pytest tests/ --cov=. --cov-report=html
+go test ./... -coverprofile=coverage.out
+go tool cover -html=coverage.out
 
-# Run specific test file
-poetry run pytest tests/test_auth.py -v
+# Run specific package
+go test ./internal/handler/... -v
 ```
 
 **Test structure:**
-```python
-import pytest
-from httpx import AsyncClient
-from main import app
+```go
+package handler_test
 
-@pytest.fixture
-async def client():
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        yield ac
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
 
-@pytest.mark.asyncio
-async def test_health_check(client: AsyncClient):
-    response = await client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    "github.com/go-chi/chi/v5"
+)
+
+func TestHealthCheck(t *testing.T) {
+    r := chi.NewRouter()
+    h := NewHealthHandler()
+    r.Get("/health", h.Handle)
+
+    req := httptest.NewRequest("GET", "/health", nil)
+    w := httptest.NewRecorder()
+
+    r.ServeHTTP(w, req)
+
+    if w.Code != http.StatusOK {
+        t.Errorf("expected status 200, got %d", w.Code)
+    }
+}
 ```
 
-### Frontend (React Testing Library)
+### Frontend (Vitest)
 
 ```bash
 # Run tests
-npm run test
+cd web && npm run test
 
 # Run with coverage
 npm run test -- --coverage
 
-# Run E2E tests
-npm run test:e2e
+# Run in watch mode
+npm run test -- --watch
 ```
 
 **Test structure:**
 ```typescript
-import { render, screen, fireEvent } from '@testing-library/react'
-import { WorkspacePanel } from './WorkspacePanel'
+import { render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { describe, it, expect } from 'vitest'
+import { ProductList } from './ProductList'
 
-describe('WorkspacePanel', () => {
-  it('renders workspace correctly', () => {
-    render(<WorkspacePanel />)
-    expect(screen.getByRole('main')).toBeInTheDocument()
-  })
+const queryClient = new QueryClient()
 
-  it('handles session creation', async () => {
-    render(<WorkspacePanel />)
-    fireEvent.click(screen.getByText('New Session'))
-    expect(await screen.findByText('Session created')).toBeInTheDocument()
+describe('ProductList', () => {
+  it('renders loading state', () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProductList />
+      </QueryClientProvider>
+    )
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
   })
 })
 ```
@@ -288,9 +351,9 @@ describe('WorkspacePanel', () => {
 
 ### Pre-Deployment Checklist
 
-- [ ] All tests passing locally
+- [ ] All tests passing locally (`go test ./...` and `npm run test`)
+- [ ] `go build ./...` succeeds
 - [ ] `npm run build` succeeds (frontend)
-- [ ] `poetry run pytest` passes (backend)
 - [ ] No hardcoded secrets
 - [ ] Environment variables documented
 - [ ] Database migrations ready
@@ -298,28 +361,33 @@ describe('WorkspacePanel', () => {
 ### Deployment Commands
 
 ```bash
-# Build and deploy frontend
-cd frontend && npm run build
-gcloud run deploy frontend --source .
+# Build Go binary
+go build -o server ./cmd/server
 
-# Build and deploy backend
-cd backend
-gcloud run deploy backend --source .
+# Build frontend
+cd web && npm run build
+
+# Deploy to Fly.io
+fly deploy
+
+# Or deploy to Cloud Run
+gcloud run deploy app --source .
 ```
 
 ### Environment Variables
 
 ```bash
-# Frontend (.env.local)
-NEXT_PUBLIC_API_URL=https://api.example.com
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-
 # Backend (.env)
-DATABASE_URL=postgresql://...
-ANTHROPIC_API_KEY=sk-ant-...
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_KEY=eyJ...
+DATABASE_URL=postgresql://user:pass@host:5432/db
+REDIS_URL=redis://host:6379
+RABBITMQ_URL=amqp://user:pass@host:5672
+SHOPIFY_API_KEY=your_api_key
+SHOPIFY_API_SECRET=your_api_secret
+SHOPIFY_SCOPES=read_products,write_products
+
+# Frontend (.env)
+VITE_API_URL=https://api.example.com
+VITE_SHOPIFY_API_KEY=your_api_key
 ```
 
 ---
@@ -327,19 +395,23 @@ SUPABASE_KEY=eyJ...
 ## Critical Rules
 
 1. **No emojis** in code, comments, or documentation
-2. **Immutability** - never mutate objects or arrays
+2. **Immutability** - prefer immutable data structures
 3. **TDD** - write tests before implementation
 4. **80% coverage** minimum
 5. **Many small files** - 200-400 lines typical, 800 max
-6. **No console.log** in production code
-7. **Proper error handling** with try/catch
-8. **Input validation** with Pydantic/Zod
+6. **No fmt.Println** in production code (use structured logging)
+7. **Proper error handling** - always handle errors explicitly
+8. **Input validation** with Zod (frontend) and custom validators (Go)
+9. **HMAC verification** - CRITICAL for all Shopify webhooks
+10. **Session token auth** - use App Bridge tokens, not OAuth for API calls
 
 ---
 
 ## Related Skills
 
-- `coding-standards.md` - General coding best practices
-- `backend-patterns.md` - API and database patterns
-- `frontend-patterns.md` - React and Next.js patterns
+- `coding-standards/` - General coding best practices
+- `backend-patterns/` - Go API and database patterns
+- `frontend-patterns/` - React and TanStack Query patterns
+- `shopify-integration/` - Shopify OAuth, webhooks, GraphQL
+- `queue-worker-patterns/` - RabbitMQ consumer patterns
 - `tdd-workflow/` - Test-driven development methodology

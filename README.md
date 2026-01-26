@@ -4,6 +4,8 @@
 
 Production-ready agents, skills, hooks, commands, rules, and MCP configurations evolved over 10+ months of intensive daily use building real products.
 
+**Optimized for Go/Chi/Redis/React/Vite/Shopify Polaris Web Components stack** - comprehensive patterns for building backend APIs with Go, Shopify embedded apps with Polaris Web Components, queue workers with RabbitMQ, and modern React frontends using React Hook Form + Zod.
+
 ---
 
 ## The Guides
@@ -53,40 +55,43 @@ everything-claude-code/
 |-- agents/           # Specialized subagents for delegation
 |   |-- planner.md           # Feature implementation planning
 |   |-- architect.md         # System design decisions
-|   |-- tdd-guide.md         # Test-driven development
-|   |-- code-reviewer.md     # Quality and security review
-|   |-- security-reviewer.md # Vulnerability analysis
-|   |-- build-error-resolver.md
+|   |-- tdd-guide.md         # Test-driven development with Go
+|   |-- code-reviewer.md     # Go code quality and security review
+|   |-- security-reviewer.md # Go + Shopify vulnerability analysis
+|   |-- build-error-resolver.md # Go compilation error fixes
 |   |-- e2e-runner.md        # Playwright E2E testing
 |   |-- refactor-cleaner.md  # Dead code cleanup
 |   |-- doc-updater.md       # Documentation sync
 |
 |-- skills/           # Workflow definitions and domain knowledge
-|   |-- coding-standards/           # Language best practices
-|   |-- backend-patterns/           # API, database, caching patterns
-|   |-- frontend-patterns/          # React, Next.js patterns
+|   |-- coding-standards/           # Go coding conventions and best practices
+|   |-- backend-patterns/           # Go/Chi router, PostgreSQL (pgx), Redis caching
+|   |-- frontend-patterns/          # React/Vite, Shopify Polaris components
+|   |-- shopify-integration/        # OAuth, webhooks, GraphQL/REST APIs, GDPR compliance
+|   |-- queue-worker-patterns/      # RabbitMQ producers, consumers, DLQ, retry strategies
 |   |-- continuous-learning/        # Auto-extract patterns from sessions (Longform Guide)
 |   |-- strategic-compact/          # Manual compaction suggestions (Longform Guide)
-|   |-- tdd-workflow/               # TDD methodology
-|   |-- security-review/            # Security checklist
+|   |-- tdd-workflow/               # TDD methodology with Go table-driven tests
+|   |-- security-review/            # Go + Shopify security checklist
 |   |-- eval-harness/               # Verification loop evaluation (Longform Guide)
 |   |-- verification-loop/          # Continuous verification (Longform Guide)
 |
 |-- commands/         # Slash commands for quick execution
-|   |-- tdd.md              # /tdd - Test-driven development
+|   |-- tdd.md              # /tdd - Test-driven development (Go table-driven tests)
 |   |-- plan.md             # /plan - Implementation planning
 |   |-- e2e.md              # /e2e - E2E test generation
-|   |-- code-review.md      # /code-review - Quality review
-|   |-- build-fix.md        # /build-fix - Fix build errors
+|   |-- code-review.md      # /code-review - Go code quality review
+|   |-- build-fix.md        # /build-fix - Fix Go compilation errors
 |   |-- refactor-clean.md   # /refactor-clean - Dead code removal
 |   |-- learn.md            # /learn - Extract patterns mid-session (Longform Guide)
 |   |-- checkpoint.md       # /checkpoint - Save verification state (Longform Guide)
 |   |-- verify.md           # /verify - Run verification loop (Longform Guide)
 |
 |-- rules/            # Always-follow guidelines (copy to ~/.claude/rules/)
-|   |-- security.md         # Mandatory security checks
-|   |-- coding-style.md     # Immutability, file organization
-|   |-- testing.md          # TDD, 80% coverage requirement
+|   |-- security.md         # Mandatory security checks (Go + Shopify)
+|   |-- coding-style.md     # Go conventions (gofmt, error handling, MixedCaps)
+|   |-- testing.md          # TDD, table-driven tests, 80% coverage requirement
+|   |-- patterns.md         # Go patterns (Repository, Service layer, Chi middleware)
 |   |-- git-workflow.md     # Commit format, PR process
 |   |-- agents.md           # When to delegate to subagents
 |   |-- performance.md      # Model selection, context management
@@ -191,6 +196,38 @@ Seriously, read the guides. These configs make 10x more sense with context.
 
 ---
 
+## Stack Features
+
+This plugin is optimized for the following tech stack:
+
+**Backend:**
+- **Go 1.21+** with Chi router - Fast, lightweight HTTP router
+- **PostgreSQL 17** with pgx - Type-safe parameterized queries
+- **Redis 7** - Caching patterns (cache-aside, write-through)
+- **RabbitMQ 3.12** - Queue workers with retry and DLQ patterns
+
+**Frontend:**
+- **React 19** with Vite 6 - Fast development with HMR
+- **Shopify Polaris Web Components** - CDN-loaded components (`s-page`, `s-button`, etc.)
+- **React Hook Form + Zod** - Type-safe form validation
+- **TanStack Query** - Server state with query key factories
+- **TypeScript** - Type-safe frontend code
+
+**Shopify Integration:**
+- OAuth authentication flow
+- Webhook HMAC verification (CRITICAL for security)
+- GraphQL Admin API patterns
+- GDPR compliance (mandatory webhooks)
+- Session token validation
+
+**Monitoring:**
+- Prometheus + Grafana integration patterns
+- Structured logging (slog/zap)
+
+All skills, agents, and hooks are tailored for this stack with production-ready patterns and security best practices.
+
+---
+
 ## Key Concepts
 
 ### Agents
@@ -213,28 +250,35 @@ You are a senior code reviewer...
 Skills are workflow definitions invoked by commands or agents:
 
 ```markdown
-# TDD Workflow
+# TDD Workflow (Go)
 
-1. Define interfaces first
-2. Write failing tests (RED)
+1. Define interfaces and types first
+2. Write table-driven tests (RED)
 3. Implement minimal code (GREEN)
-4. Refactor (IMPROVE)
-5. Verify 80%+ coverage
+4. Refactor with Go conventions (IMPROVE)
+5. Run go test -cover (80%+ required)
 ```
 
 ### Hooks
 
-Hooks fire on tool events. Example - warn about console.log:
+Hooks fire on tool events. Example - auto-format Go files:
 
 ```json
 {
-  "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(ts|tsx|js|jsx)$\"",
+  "matcher": "tool == \"Edit\" && tool_input.file_path matches \"\\\\.(go)$\"",
   "hooks": [{
     "type": "command",
-    "command": "#!/bin/bash\ngrep -n 'console\\.log' \"$file_path\" && echo '[Hook] Remove console.log' >&2"
+    "command": "#!/bin/bash\ngofmt -w \"$file_path\" && goimports -w \"$file_path\" && echo '[Hook] Formatted Go file' >&2"
   }]
 }
 ```
+
+Hooks included:
+- **gofmt/goimports** - Auto-format Go files after edits
+- **fmt.Println warning** - Suggest structured logging (slog/zap)
+- **console.log warning** - Warn about console.log in frontend files
+- **Dev server tmux** - Ensure dev servers run in tmux for log access
+- **Memory persistence** - Save/load session state across context compaction
 
 ### Rules
 
@@ -242,9 +286,10 @@ Rules are always-follow guidelines. Keep them modular:
 
 ```
 ~/.claude/rules/
-  security.md      # No hardcoded secrets
-  coding-style.md  # Immutability, file limits
-  testing.md       # TDD, coverage requirements
+  security.md      # No hardcoded secrets, SQL injection prevention, HMAC verification
+  coding-style.md  # Go conventions (gofmt, MixedCaps, error wrapping with %w)
+  testing.md       # TDD, table-driven tests, 80% coverage
+  patterns.md      # Go patterns (Repository, Service layer, Chi middleware)
 ```
 
 ---
@@ -294,11 +339,13 @@ Use `disabledMcpServers` in project config to disable unused ones.
 
 ### Customization
 
-These configs work for my workflow. You should:
+These configs are optimized for **Go/Chi/Redis/React/Vite/Shopify Polaris** stack. You should:
 1. Start with what resonates
-2. Modify for your stack
-3. Remove what you don't use
-4. Add your own patterns
+2. Modify for your specific tech stack
+3. Remove skills/patterns you don't use (e.g., Shopify if not building Shopify apps)
+4. Add your own patterns (see CONTRIBUTING.md)
+
+**For other stacks:** The architecture (agents, skills, hooks, rules, commands) works universally. Just replace the language-specific content in skills and rules with your stack's patterns.
 
 ---
 

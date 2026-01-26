@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(for dir in /Users/tattran/Projects/everything-claude-code/skills/*/)",
+      "Bash(do basename \"$dir\")",
+      "Bash(done)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs"
+    ]
+  }
+}

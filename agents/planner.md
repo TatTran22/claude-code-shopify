@@ -98,6 +98,20 @@ Create detailed steps with:
 6. **Think Incrementally**: Each step should be verifiable
 7. **Document Decisions**: Explain why, not just what
 
+### Go-Specific Considerations
+- Design interfaces before implementations
+- Use explicit error handling (no exceptions)
+- Consider context propagation for timeouts/cancellation
+- Plan for graceful shutdown in long-running services
+- Structure packages by domain, not by layer
+
+### React-Specific Considerations
+- Consider component composition and reusability
+- Plan state management strategy (local vs server state)
+- Think about data fetching patterns (TanStack Query keys)
+- Consider form validation requirements (Zod schemas)
+- Plan for loading and error states in UI
+
 ## When Planning Refactors
 
 1. Identify code smells and technical debt

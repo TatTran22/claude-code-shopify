@@ -1,494 +1,467 @@
 ---
 name: security-review
-description: Use this skill when adding authentication, handling user input, working with secrets, creating API endpoints, or implementing payment/sensitive features. Provides comprehensive security checklist and patterns.
+description: Use this skill when adding authentication, handling user input, working with secrets, creating API endpoints, Shopify webhooks, or implementing sensitive features in Go. Provides comprehensive security checklist and Go patterns.
 ---
 
-# Security Review Skill
+# Security Review Skill (Go + Shopify)
 
-This skill ensures all code follows security best practices and identifies potential vulnerabilities.
+This skill ensures all Go code follows security best practices and identifies potential vulnerabilities specific to Go/Chi/Shopify applications.
 
 ## When to Activate
 
 - Implementing authentication or authorization
 - Handling user input or file uploads
-- Creating new API endpoints
+- Creating new API endpoints (Chi router)
+- Adding Shopify webhooks or OAuth
 - Working with secrets or credentials
 - Implementing payment features
 - Storing or transmitting sensitive data
 - Integrating third-party APIs
+- Database operations
 
-## Security Checklist
+## Critical Security Checklist
 
 ### 1. Secrets Management
 
 #### ❌ NEVER Do This
-```typescript
-const apiKey = "sk-proj-xxxxx"  // Hardcoded secret
-const dbPassword = "password123" // In source code
+```go
+const (
+	APIKey       = "sk-proj-xxxxx"  // Hardcoded secret
+	ShopifyKey   = "shpat_xxxxx"     // In source code
+	DBPassword   = "password123"     // NEVER!
+)
 ```
 
 #### ✅ ALWAYS Do This
-```typescript
-const apiKey = process.env.OPENAI_API_KEY
-const dbUrl = process.env.DATABASE_URL
+```go
+func LoadConfig() (*Config, error) {
+	shopifyKey := os.Getenv("SHOPIFY_API_KEY")
+	if shopifyKey == "" {
+		return nil, errors.New("SHOPIFY_API_KEY not configured")
+	}
 
-// Verify secrets exist
-if (!apiKey) {
-  throw new Error('OPENAI_API_KEY not configured')
+	return &Config{
+		ShopifyAPIKey: shopifyKey,
+		ShopifySecret: mustGetEnv("SHOPIFY_API_SECRET"),
+		DatabaseURL:   mustGetEnv("DATABASE_URL"),
+	}, nil
+}
+
+func mustGetEnv(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		log.Fatalf("%s environment variable not set", key)
+	}
+	return val
 }
 ```
 
 #### Verification Steps
 - [ ] No hardcoded API keys, tokens, or passwords
 - [ ] All secrets in environment variables
-- [ ] `.env.local` in .gitignore
-- [ ] No secrets in git history
-- [ ] Production secrets in hosting platform (Vercel, Railway)
+- [ ] `.env` in .gitignore
+- [ ] No secrets in git history (`git log -p | grep -i "password\|api_key"`)
+- [ ] Production secrets in hosting platform
 
-### 2. Input Validation
+### 2. SQL Injection Prevention
 
-#### Always Validate User Input
-```typescript
-import { z } from 'zod'
+#### ❌ NEVER Concatenate SQL
+```go
+// DANGEROUS - SQL Injection vulnerability
+query := fmt.Sprintf("SELECT * FROM users WHERE email = '%s'", userEmail)
+db.QueryRow(context.Background(), query)
+```
 
-// Define validation schema
-const CreateUserSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1).max(100),
-  age: z.number().int().min(0).max(150)
-})
+#### ✅ ALWAYS Use Parameterized Queries
+```go
+// Safe - parameterized query with pgx
+query := `SELECT id, email, name FROM users WHERE email = $1`
+err := db.QueryRow(ctx, query, userEmail).Scan(&user.ID, &user.Email, &user.Name)
+```
 
-// Validate before processing
-export async function createUser(input: unknown) {
-  try {
-    const validated = CreateUserSchema.parse(input)
-    return await db.users.create(validated)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return { success: false, errors: error.errors }
-    }
-    throw error
-  }
+#### Verification Steps
+- [ ] All database queries use $1, $2 placeholders
+- [ ] No string concatenation in SQL
+- [ ] No fmt.Sprintf for query building
+- [ ] All queries reviewed for injection vulnerabilities
+
+### 3. Shopify Webhook HMAC Verification (CRITICAL)
+
+#### ❌ NEVER Skip HMAC Verification
+```go
+// DANGEROUS - Processing unverified webhook
+func HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	var order Order
+	json.NewDecoder(r.Body).Decode(&order) // NO VERIFICATION!
+	processOrder(order) // Could be forged!
 }
 ```
 
-#### File Upload Validation
-```typescript
-function validateFileUpload(file: File) {
-  // Size check (5MB max)
-  const maxSize = 5 * 1024 * 1024
-  if (file.size > maxSize) {
-    throw new Error('File too large (max 5MB)')
-  }
+#### ✅ ALWAYS Verify HMAC First
+```go
+func VerifyShopifyWebhook(r *http.Request, body []byte, secret string) bool {
+	hmacHeader := r.Header.Get("X-Shopify-Hmac-Sha256")
+	if hmacHeader == "" {
+		return false
+	}
 
-  // Type check
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif']
-  if (!allowedTypes.includes(file.type)) {
-    throw new Error('Invalid file type')
-  }
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	expectedMAC := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-  // Extension check
-  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif']
-  const extension = file.name.toLowerCase().match(/\.[^.]+$/)?.[0]
-  if (!extension || !allowedExtensions.includes(extension)) {
-    throw new Error('Invalid file extension')
-  }
+	// Use hmac.Equal for constant-time comparison (prevents timing attacks)
+	return hmac.Equal([]byte(hmacHeader), []byte(expectedMAC))
+}
 
-  return true
+func HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Verify HMAC signature
+	secret := os.Getenv("SHOPIFY_WEBHOOK_SECRET")
+	if !VerifyShopifyWebhook(r, body, secret) {
+		log.Warn("Invalid webhook HMAC signature")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Process webhook asynchronously
+	go processWebhookAsync(body)
+	w.WriteHeader(http.StatusOK)
 }
 ```
 
 #### Verification Steps
-- [ ] All user inputs validated with schemas
+- [ ] All Shopify webhooks verify HMAC
+- [ ] OAuth callbacks verify HMAC
+- [ ] Constant-time comparison used (hmac.Equal)
+- [ ] GDPR webhooks implemented (all 3 required)
+- [ ] Webhooks processed asynchronously
+
+### 4. Input Validation
+
+#### ❌ No Validation
+```go
+func CreateMarket(w http.ResponseWriter, r *http.Request) {
+	var req CreateMarketRequest
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// No validation - could be empty, malicious, etc.
+	market := &Market{Name: req.Name}
+	db.Create(market)
+}
+```
+
+#### ✅ Validate with go-playground/validator
+```go
+import "github.com/go-playground/validator/v10"
+
+type CreateMarketRequest struct {
+	Name        string `json:"name" validate:"required,min=3,max=100"`
+	Description string `json:"description" validate:"max=500"`
+	Category    string `json:"category" validate:"required,oneof=politics sports finance"`
+}
+
+var validate = validator.New()
+
+func CreateMarket(w http.ResponseWriter, r *http.Request) {
+	var req CreateMarketRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	// Validate input
+	if err := validate.Struct(req); err != nil {
+		respondError(w, http.StatusBadRequest, fmt.Sprintf("Validation failed: %v", err))
+		return
+	}
+
+	// Now safe to use validated input
+	market := &Market{
+		Name:        req.Name,
+		Description: req.Description,
+		Category:    req.Category,
+	}
+	// ...
+}
+```
+
+#### Verification Steps
+- [ ] All user inputs validated with go-playground/validator
 - [ ] File uploads restricted (size, type, extension)
 - [ ] No direct use of user input in queries
 - [ ] Whitelist validation (not blacklist)
 - [ ] Error messages don't leak sensitive info
 
-### 3. SQL Injection Prevention
+### 5. Authentication & Authorization
 
-#### ❌ NEVER Concatenate SQL
-```typescript
-// DANGEROUS - SQL Injection vulnerability
-const query = `SELECT * FROM users WHERE email = '${userEmail}'`
-await db.query(query)
-```
+#### JWT Token Validation
+```go
+import "github.com/golang-jwt/jwt/v5"
 
-#### ✅ ALWAYS Use Parameterized Queries
-```typescript
-// Safe - parameterized query
-const { data } = await supabase
-  .from('users')
-  .select('*')
-  .eq('email', userEmail)
+func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
+				return
+			}
 
-// Or with raw SQL
-await db.query(
-  'SELECT * FROM users WHERE email = $1',
-  [userEmail]
-)
-```
+			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString == authHeader {
+				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
+				return
+			}
 
-#### Verification Steps
-- [ ] All database queries use parameterized queries
-- [ ] No string concatenation in SQL
-- [ ] ORM/query builder used correctly
-- [ ] Supabase queries properly sanitized
+			// Parse and validate token
+			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+				// Validate signing method
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+				}
+				return []byte(jwtSecret), nil
+			})
 
-### 4. Authentication & Authorization
+			if err != nil || !token.Valid {
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+				return
+			}
 
-#### JWT Token Handling
-```typescript
-// ❌ WRONG: localStorage (vulnerable to XSS)
-localStorage.setItem('token', token)
+			// Extract claims and add to context
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				http.Error(w, "Invalid claims", http.StatusUnauthorized)
+				return
+			}
 
-// ✅ CORRECT: httpOnly cookies
-res.setHeader('Set-Cookie',
-  `token=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=3600`)
+			ctx := context.WithValue(r.Context(), "userID", claims["sub"])
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
 ```
 
 #### Authorization Checks
-```typescript
-export async function deleteUser(userId: string, requesterId: string) {
-  // ALWAYS verify authorization first
-  const requester = await db.users.findUnique({
-    where: { id: requesterId }
-  })
+```go
+func DeleteMarket(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value("userID").(string)
+	marketID := chi.URLParam(r, "id")
 
-  if (requester.role !== 'admin') {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 403 }
-    )
-  }
+	// Verify ownership
+	market, err := repo.FindByID(r.Context(), marketID)
+	if err != nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
 
-  // Proceed with deletion
-  await db.users.delete({ where: { id: userId } })
+	if market.OwnerID != userID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Proceed with deletion
+	err = repo.Delete(r.Context(), marketID)
+	// ...
 }
 ```
 
-#### Row Level Security (Supabase)
-```sql
--- Enable RLS on all tables
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-
--- Users can only view their own data
-CREATE POLICY "Users view own data"
-  ON users FOR SELECT
-  USING (auth.uid() = id);
-
--- Users can only update their own data
-CREATE POLICY "Users update own data"
-  ON users FOR UPDATE
-  USING (auth.uid() = id);
-```
-
 #### Verification Steps
-- [ ] Tokens stored in httpOnly cookies (not localStorage)
+- [ ] JWT tokens validated with golang-jwt/jwt
 - [ ] Authorization checks before sensitive operations
-- [ ] Row Level Security enabled in Supabase
-- [ ] Role-based access control implemented
+- [ ] HTTPS enforced (TLS 1.3+)
 - [ ] Session management secure
+- [ ] Passwords hashed with bcrypt (cost >= 12)
 
-### 5. XSS Prevention
+### 6. Password Hashing
 
-#### Sanitize HTML
-```typescript
-import DOMPurify from 'isomorphic-dompurify'
+#### ❌ NEVER Store Plaintext or Weak Hashing
+```go
+// WRONG - plaintext
+user.Password = password
 
-// ALWAYS sanitize user-provided HTML
-function renderUserContent(html: string) {
-  const clean = DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'p'],
-    ALLOWED_ATTR: []
-  })
-  return <div dangerouslySetInnerHTML={{ __html: clean }} />
+// WRONG - weak hashing
+hash := sha256.Sum256([]byte(password))
+```
+
+#### ✅ Use bcrypt
+```go
+import "golang.org/x/crypto/bcrypt"
+
+func CreateUser(email, password string) error {
+	// Hash password with bcrypt (cost 12-14 recommended)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	user := &User{
+		Email:        email,
+		PasswordHash: string(hashedPassword),
+	}
+
+	return db.Create(context.Background(), user)
+}
+
+func VerifyPassword(hashedPassword, password string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	return err == nil
 }
 ```
 
-#### Content Security Policy
-```typescript
-// next.config.js
-const securityHeaders = [
-  {
-    key: 'Content-Security-Policy',
-    value: `
-      default-src 'self';
-      script-src 'self' 'unsafe-eval' 'unsafe-inline';
-      style-src 'self' 'unsafe-inline';
-      img-src 'self' data: https:;
-      font-src 'self';
-      connect-src 'self' https://api.example.com;
-    `.replace(/\s{2,}/g, ' ').trim()
-  }
-]
-```
+### 7. Race Condition Prevention
 
-#### Verification Steps
-- [ ] User-provided HTML sanitized
-- [ ] CSP headers configured
-- [ ] No unvalidated dynamic content rendering
-- [ ] React's built-in XSS protection used
-
-### 6. CSRF Protection
-
-#### CSRF Tokens
-```typescript
-import { csrf } from '@/lib/csrf'
-
-export async function POST(request: Request) {
-  const token = request.headers.get('X-CSRF-Token')
-
-  if (!csrf.verify(token)) {
-    return NextResponse.json(
-      { error: 'Invalid CSRF token' },
-      { status: 403 }
-    )
-  }
-
-  // Process request
-}
-```
-
-#### SameSite Cookies
-```typescript
-res.setHeader('Set-Cookie',
-  `session=${sessionId}; HttpOnly; Secure; SameSite=Strict`)
-```
-
-#### Verification Steps
-- [ ] CSRF tokens on state-changing operations
-- [ ] SameSite=Strict on all cookies
-- [ ] Double-submit cookie pattern implemented
-
-### 7. Rate Limiting
-
-#### API Rate Limiting
-```typescript
-import rateLimit from 'express-rate-limit'
-
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
-  message: 'Too many requests'
-})
-
-// Apply to routes
-app.use('/api/', limiter)
-```
-
-#### Expensive Operations
-```typescript
-// Aggressive rate limiting for searches
-const searchLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 10, // 10 requests per minute
-  message: 'Too many search requests'
-})
-
-app.use('/api/search', searchLimiter)
-```
-
-#### Verification Steps
-- [ ] Rate limiting on all API endpoints
-- [ ] Stricter limits on expensive operations
-- [ ] IP-based rate limiting
-- [ ] User-based rate limiting (authenticated)
-
-### 8. Sensitive Data Exposure
-
-#### Logging
-```typescript
-// ❌ WRONG: Logging sensitive data
-console.log('User login:', { email, password })
-console.log('Payment:', { cardNumber, cvv })
-
-// ✅ CORRECT: Redact sensitive data
-console.log('User login:', { email, userId })
-console.log('Payment:', { last4: card.last4, userId })
-```
-
-#### Error Messages
-```typescript
-// ❌ WRONG: Exposing internal details
-catch (error) {
-  return NextResponse.json(
-    { error: error.message, stack: error.stack },
-    { status: 500 }
-  )
-}
-
-// ✅ CORRECT: Generic error messages
-catch (error) {
-  console.error('Internal error:', error)
-  return NextResponse.json(
-    { error: 'An error occurred. Please try again.' },
-    { status: 500 }
-  )
-}
-```
-
-#### Verification Steps
-- [ ] No passwords, tokens, or secrets in logs
-- [ ] Error messages generic for users
-- [ ] Detailed errors only in server logs
-- [ ] No stack traces exposed to users
-
-### 9. Blockchain Security (Solana)
-
-#### Wallet Verification
-```typescript
-import { verify } from '@solana/web3.js'
-
-async function verifyWalletOwnership(
-  publicKey: string,
-  signature: string,
-  message: string
-) {
-  try {
-    const isValid = verify(
-      Buffer.from(message),
-      Buffer.from(signature, 'base64'),
-      Buffer.from(publicKey, 'base64')
-    )
-    return isValid
-  } catch (error) {
-    return false
-  }
-}
-```
-
-#### Transaction Verification
-```typescript
-async function verifyTransaction(transaction: Transaction) {
-  // Verify recipient
-  if (transaction.to !== expectedRecipient) {
-    throw new Error('Invalid recipient')
-  }
-
-  // Verify amount
-  if (transaction.amount > maxAmount) {
-    throw new Error('Amount exceeds limit')
-  }
-
-  // Verify user has sufficient balance
-  const balance = await getBalance(transaction.from)
-  if (balance < transaction.amount) {
-    throw new Error('Insufficient balance')
-  }
-
-  return true
-}
-```
-
-#### Verification Steps
-- [ ] Wallet signatures verified
-- [ ] Transaction details validated
-- [ ] Balance checks before transactions
-- [ ] No blind transaction signing
-
-### 10. Dependency Security
-
-#### Regular Updates
+#### Run Race Detector
 ```bash
-# Check for vulnerabilities
-npm audit
-
-# Fix automatically fixable issues
-npm audit fix
-
-# Update dependencies
-npm update
-
-# Check for outdated packages
-npm outdated
+go test -race ./...
 ```
 
-#### Lock Files
+#### Use Mutexes for Shared State
+```go
+type SafeCounter struct {
+	mu    sync.RWMutex
+	count map[string]int
+}
+
+func (c *SafeCounter) Increment(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.count[key]++
+}
+
+func (c *SafeCounter) Value(key string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.count[key]
+}
+```
+
+### 8. Error Handling (Don't Leak Info)
+
+#### ❌ Leaking Internal Details
+```go
+// WRONG - exposes internal error details to user
+http.Error(w, fmt.Sprintf("Database error: %v", err), http.StatusInternalServerError)
+```
+
+#### ✅ Generic Error Messages
+```go
+// CORRECT - log detailed error, return generic message
+log.Error("Database connection failed", "error", err, "table", "markets")
+http.Error(w, "Internal server error", http.StatusInternalServerError)
+```
+
+### 9. Logging Security
+
+#### ❌ Logging Sensitive Data
+```go
+// WRONG - logs passwords, tokens
+log.Printf("User login: email=%s password=%s", email, password)
+log.Printf("Request: %+v", r.Header) // Contains auth tokens!
+```
+
+#### ✅ Sanitized Logging
+```go
+import "log/slog"
+
+// CORRECT - structured logging without sensitive data
+slog.Info("User login attempt",
+	"email", maskEmail(email),
+	"ip", r.RemoteAddr,
+)
+
+// Never log: passwords, API keys, tokens, credit cards, SSNs
+```
+
+## Security Scanning Commands
+
 ```bash
-# ALWAYS commit lock files
-git add package-lock.json
+# Check for security vulnerabilities
+gosec ./...
 
-# Use in CI/CD for reproducible builds
-npm ci  # Instead of npm install
-```
+# Check for vulnerable dependencies
+go list -json -m all | nancy sleuth
 
-#### Verification Steps
-- [ ] Dependencies up to date
-- [ ] No known vulnerabilities (npm audit clean)
-- [ ] Lock files committed
-- [ ] Dependabot enabled on GitHub
-- [ ] Regular security updates
+# Comprehensive vulnerability scan
+trivy fs --scanners vuln,secret,misconfig .
 
-## Security Testing
+# Run security-focused linters
+golangci-lint run --enable=gosec,gocritic,bodyclose,errcheck
 
-### Automated Security Tests
-```typescript
-// Test authentication
-test('requires authentication', async () => {
-  const response = await fetch('/api/protected')
-  expect(response.status).toBe(401)
-})
+# Check for secrets in files
+grep -r "api[_-]?key\|password\|secret\|token" --include="*.go" .
 
-// Test authorization
-test('requires admin role', async () => {
-  const response = await fetch('/api/admin', {
-    headers: { Authorization: `Bearer ${userToken}` }
-  })
-  expect(response.status).toBe(403)
-})
+# Check for Shopify secrets
+grep -r "shpat_\|shpca_\|shpss_" --include="*.go" .
 
-// Test input validation
-test('rejects invalid input', async () => {
-  const response = await fetch('/api/users', {
-    method: 'POST',
-    body: JSON.stringify({ email: 'not-an-email' })
-  })
-  expect(response.status).toBe(400)
-})
-
-// Test rate limiting
-test('enforces rate limits', async () => {
-  const requests = Array(101).fill(null).map(() =>
-    fetch('/api/endpoint')
-  )
-
-  const responses = await Promise.all(requests)
-  const tooManyRequests = responses.filter(r => r.status === 429)
-
-  expect(tooManyRequests.length).toBeGreaterThan(0)
-})
+# Test for race conditions
+go test -race ./...
 ```
 
 ## Pre-Deployment Security Checklist
 
-Before ANY production deployment:
+Before deploying to production:
 
-- [ ] **Secrets**: No hardcoded secrets, all in env vars
-- [ ] **Input Validation**: All user inputs validated
-- [ ] **SQL Injection**: All queries parameterized
-- [ ] **XSS**: User content sanitized
-- [ ] **CSRF**: Protection enabled
-- [ ] **Authentication**: Proper token handling
-- [ ] **Authorization**: Role checks in place
-- [ ] **Rate Limiting**: Enabled on all endpoints
-- [ ] **HTTPS**: Enforced in production
-- [ ] **Security Headers**: CSP, X-Frame-Options configured
-- [ ] **Error Handling**: No sensitive data in errors
-- [ ] **Logging**: No sensitive data logged
-- [ ] **Dependencies**: Up to date, no vulnerabilities
-- [ ] **Row Level Security**: Enabled in Supabase
-- [ ] **CORS**: Properly configured
-- [ ] **File Uploads**: Validated (size, type)
-- [ ] **Wallet Signatures**: Verified (if blockchain)
+### Code Security
+- [ ] gosec ./... passes with no critical issues
+- [ ] go test -race ./... passes
+- [ ] All secrets in environment variables
+- [ ] No hardcoded credentials in code or git history
+- [ ] Input validation on all endpoints
+- [ ] Error messages don't leak sensitive info
 
-## Resources
+### Shopify Security
+- [ ] Webhook HMAC verification implemented
+- [ ] OAuth HMAC verification implemented
+- [ ] All 3 GDPR webhooks implemented
+- [ ] Shop domain validation
+- [ ] Session tokens validated
+- [ ] No Shopify secrets in frontend code
 
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/)
-- [Next.js Security](https://nextjs.org/docs/security)
-- [Supabase Security](https://supabase.com/docs/guides/auth)
-- [Web Security Academy](https://portswigger.net/web-security)
+### Database Security
+- [ ] All queries parameterized ($1, $2, etc.)
+- [ ] Database connection uses TLS
+- [ ] Connection strings in environment variables
+- [ ] No SQL injection vulnerabilities
+
+### Authentication/Authorization
+- [ ] JWT tokens validated properly
+- [ ] Passwords hashed with bcrypt (cost >= 12)
+- [ ] Authorization checks on all protected routes
+- [ ] HTTPS enforced
+
+### Dependencies
+- [ ] nancy scan clean (no vulnerable dependencies)
+- [ ] go.mod dependencies up to date
+- [ ] No known CVEs in dependencies
+
+## Common Vulnerabilities (OWASP Top 10 for Go)
+
+1. **SQL Injection** - Use parameterized queries ($1, $2)
+2. **Command Injection** - Avoid exec.Command with user input
+3. **Hardcoded Secrets** - All secrets in environment variables
+4. **Missing Error Checks** - Always check errors (never `_`)
+5. **Race Conditions** - Use mutexes, test with -race
+6. **Weak Crypto** - bcrypt for passwords, not MD5/SHA256
+7. **HMAC Verification** - Verify Shopify webhooks/OAuth
+8. **Input Validation** - Use go-playground/validator
+9. **JWT Validation** - Validate signature and expiry
+10. **Logging Sensitive Data** - Sanitize logs (slog/zap)
+
+## Security Resources
+
+- **Go Security Guide**: https://go.dev/doc/security/
+- **OWASP Go**: https://owasp.org/www-project-go-secure-coding-practices-guide/
+- **Shopify Security**: https://shopify.dev/docs/apps/launch/security
+- **gosec**: https://github.com/securego/gosec
+- **CWE Top 25**: https://cwe.mitre.org/top25/
 
 ---
 
-**Remember**: Security is not optional. One vulnerability can compromise the entire platform. When in doubt, err on the side of caution.
+**Remember**: Security is not optional, especially for Shopify apps handling merchant data. One vulnerability can compromise the entire app and result in app suspension.
+
+For comprehensive security review, use the `security-reviewer` agent which provides detailed vulnerability analysis and remediation.

@@ -1,15 +1,16 @@
 {
   "name": "everything-claude-code",
   "version": "1.0.0",
-  "description": "Complete collection of battle-tested Claude Code configs from an Anthropic hackathon winner - agents, skills, hooks, commands, and rules evolved over 10+ months of intensive daily use",
+  "description": "Complete collection of Claude Code configs - agents, skills, hooks, commands, and rules optimized for Go/Chi/Redis/React/Vite/Shopify Polaris stack",
   "author": {
-    "name": "Affaan Mustafa",
-    "url": "https://x.com/affaanmustafa"
+    "name": "Tat Tran",
+    "url": "https://github.com/TatTran22",
+    "email": "tattran.dev@gmail.com"
   },
-  "homepage": "https://github.com/affaan-m/everything-claude-code",
+  "homepage": "https://www.facebook.com/tattran86/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/affaan-m/everything-claude-code.git"
+    "url": "https://github.com/TatTran22/claude-code-shopify.git"
   },
   "license": "MIT",
   "keywords": [
@@ -19,6 +20,15 @@
     "hooks",
     "commands",
     "rules",
+    "go",
+    "chi-router",
+    "react",
+    "vite",
+    "shopify",
+    "polaris",
+    "rabbitmq",
+    "postgresql",
+    "redis",
     "tdd",
     "code-review",
     "security",

@@ -19,22 +19,29 @@ You are a documentation specialist focused on keeping codemaps and documentation
 
 ## Tools at Your Disposal
 
-### Analysis Tools
-- **ts-morph** - TypeScript AST analysis and manipulation
-- **TypeScript Compiler API** - Deep code structure analysis
-- **madge** - Dependency graph visualization
-- **jsdoc-to-markdown** - Generate docs from JSDoc comments
+### Analysis Tools (Go Backend)
+- **go/ast** - Go AST analysis and manipulation
+- **godoc** - Generate documentation from Go comments
+- **staticcheck** - Go static analysis and linting
+- **swag** - Swagger/OpenAPI generation from Go annotations
+
+### Analysis Tools (React Frontend)
+- **TypeScript Compiler API** - React/TypeScript structure analysis
+- **madge** - Dependency graph visualization for React components
 
 ### Analysis Commands
 ```bash
-# Analyze TypeScript project structure
-npx ts-morph
+# Go documentation generation
+go doc ./...
 
-# Generate dependency graph
-npx madge --image graph.svg src/
+# Generate Swagger from Go annotations
+swag init -g cmd/server/main.go
 
-# Extract JSDoc comments
-npx jsdoc2md src/**/*.ts
+# Static analysis for Go
+staticcheck ./...
+
+# Generate dependency graph for React
+npx madge --image graph.svg web/src/
 ```
 
 ## Codemap Generation Workflow
@@ -52,9 +59,9 @@ d) Detect framework patterns (Next.js, Node.js, etc.)
 For each module:
 - Extract exports (public API)
 - Map imports (dependencies)
-- Identify routes (API routes, pages)
-- Find database models (Supabase, Prisma)
-- Locate queue/worker modules
+- Identify routes (Chi router endpoints, React pages)
+- Find database models (PostgreSQL with pgx)
+- Locate queue/worker modules (RabbitMQ consumers)
 ```
 
 ### 3. Generate Codemaps
@@ -134,39 +141,40 @@ Files to update:
 # Frontend Architecture
 
 **Last Updated:** YYYY-MM-DD
-**Framework:** Next.js 15.1.4 (App Router)
-**Entry Point:** website/src/app/layout.tsx
+**Framework:** React 19 + Vite 7 (Shopify Embedded App)
+**Entry Point:** web/src/main.tsx
 
 ## Structure
 
-website/src/
-├── app/                # Next.js App Router
-│   ├── api/           # API routes
-│   ├── markets/       # Markets pages
-│   ├── bot/           # Bot interaction
-│   └── creator-dashboard/
-├── components/        # React components
-├── hooks/             # Custom hooks
-└── lib/               # Utilities
+web/src/
+├── pages/              # React Router pages
+│   ├── Dashboard.tsx   # Main dashboard
+│   ├── Products.tsx    # Product management
+│   └── Settings.tsx    # App settings
+├── components/         # React components (using Polaris Web Components)
+├── hooks/              # Custom hooks (TanStack Query)
+├── lib/                # Utilities and API client
+└── queries/            # Query key factories
 
 ## Key Components
 
 | Component | Purpose | Location |
 |-----------|---------|----------|
-| HeaderWallet | Wallet connection | components/HeaderWallet.tsx |
-| MarketsClient | Markets listing | app/markets/MarketsClient.js |
-| SemanticSearchBar | Search UI | components/SemanticSearchBar.js |
+| AppFrame | Polaris page layout | components/AppFrame.tsx |
+| ProductList | Product listing with s-resource-list | pages/Products.tsx |
+| SessionProvider | App Bridge session token | components/SessionProvider.tsx |
 
 ## Data Flow
 
-User → Markets Page → API Route → Supabase → Redis (optional) → Response
+User → React Page → TanStack Query → Go API → PostgreSQL/Redis → Response
 
 ## External Dependencies
 
-- Next.js 15.1.4 - Framework
-- React 19.0.0 - UI library
-- Privy - Authentication
-- Tailwind CSS 3.4.1 - Styling
+- React 19 + Vite 7 - Framework
+- Shopify Polaris Web Components - UI (CDN-loaded)
+- @shopify/app-bridge - Shopify integration
+- TanStack Query - Server state management
+- React Hook Form + Zod - Form validation
 ```
 
 ### Backend Codemap (docs/CODEMAPS/backend.md)
@@ -174,27 +182,40 @@ User → Markets Page → API Route → Supabase → Redis (optional) → Respon
 # Backend Architecture
 
 **Last Updated:** YYYY-MM-DD
-**Runtime:** Next.js API Routes
-**Entry Point:** website/src/app/api/
+**Runtime:** Go 1.21+ with Chi router
+**Entry Point:** cmd/server/main.go
+
+## Directory Structure
+
+cmd/
+└── server/main.go      # Application entry point
+internal/
+├── handler/            # HTTP handlers
+├── service/            # Business logic
+├── repository/         # Data access (pgx)
+├── middleware/         # Chi middleware
+├── shopify/            # Shopify OAuth, webhooks, GraphQL
+└── queue/              # RabbitMQ producers/consumers
 
 ## API Routes
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| /api/markets | GET | List all markets |
-| /api/markets/search | GET | Semantic search |
-| /api/market/[slug] | GET | Single market |
-| /api/market-price | GET | Real-time pricing |
+| /api/auth/callback | GET | Shopify OAuth callback |
+| /api/products | GET | List products (GraphQL proxy) |
+| /api/webhooks/orders/create | POST | Order created webhook |
+| /api/webhooks/gdpr/* | POST | GDPR compliance webhooks |
 
 ## Data Flow
 
-API Route → Supabase Query → Redis (cache) → Response
+HTTP Request → Chi Router → Middleware → Handler → Service → Repository → PostgreSQL/Redis
 
 ## External Services
 
-- Supabase - PostgreSQL database
-- Redis Stack - Vector search
-- OpenAI - Embeddings
+- PostgreSQL 17 (pgx) - Primary database, sessions
+- Redis 7 - Caching, session storage
+- RabbitMQ 3.12 - Async webhook processing
+- Shopify Admin API - GraphQL queries
 ```
 
 ### Integrations Codemap (docs/CODEMAPS/integrations.md)
@@ -203,25 +224,35 @@ API Route → Supabase Query → Redis (cache) → Response
 
 **Last Updated:** YYYY-MM-DD
 
-## Authentication (Privy)
-- Wallet connection (Solana, Ethereum)
-- Email authentication
-- Session management
+## Shopify OAuth
+- OAuth 2.0 flow with HMAC verification
+- Session token authentication for embedded apps
+- Offline/online access token management
+- Scopes: read_products, write_products, etc.
 
-## Database (Supabase)
-- PostgreSQL tables
-- Real-time subscriptions
-- Row Level Security
+## Shopify Webhooks
+- HMAC signature verification (CRITICAL)
+- Async processing via RabbitMQ
+- Mandatory GDPR webhooks (customers/data_request, customers/redact, shop/redact)
+- Order, product, and inventory webhooks
 
-## Search (Redis + OpenAI)
-- Vector embeddings (text-embedding-ada-002)
-- Semantic search (KNN)
-- Fallback to substring search
+## Shopify GraphQL Admin API
+- Rate limiting with throttle handling
+- Bulk operations for large datasets
+- Cursor-based pagination
+- Query cost calculation
 
-## Blockchain (Solana)
-- Wallet integration
-- Transaction handling
-- Meteora CP-AMM SDK
+## Database (PostgreSQL + pgx)
+- Connection pooling with pgxpool
+- Type-safe parameterized queries
+- Session storage for shops
+- Webhook event deduplication
+
+## Caching (Redis)
+- Cache-aside pattern for API responses
+- Session token caching
+- Rate limit counters
+- Webhook deduplication keys
 ```
 
 ## README Update Template
@@ -236,17 +267,20 @@ Brief description
 ## Setup
 
 \`\`\`bash
-# Installation
+# Backend (Go)
+cd cmd/server
+go mod download
+cp .env.example .env
+# Fill in: DATABASE_URL, REDIS_URL, RABBITMQ_URL, SHOPIFY_API_KEY, etc.
+go run main.go
+
+# Frontend (React)
+cd web
 npm install
-
-# Environment variables
-cp .env.example .env.local
-# Fill in: OPENAI_API_KEY, REDIS_URL, etc.
-
-# Development
 npm run dev
 
 # Build
+go build -o server ./cmd/server
 npm run build
 \`\`\`
 
@@ -256,9 +290,9 @@ See [docs/CODEMAPS/INDEX.md](docs/CODEMAPS/INDEX.md) for detailed architecture.
 
 ### Key Directories
 
-- `src/app` - Next.js App Router pages and API routes
-- `src/components` - Reusable React components
-- `src/lib` - Utility libraries and clients
+- `cmd/server` - Go application entry point
+- `internal/` - Go packages (handler, service, repository)
+- `web/src/` - React frontend with Polaris Web Components
 
 ## Features
 
@@ -278,82 +312,79 @@ See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Scripts to Power Documentation
 
-### scripts/codemaps/generate.ts
-```typescript
-/**
- * Generate codemaps from repository structure
- * Usage: tsx scripts/codemaps/generate.ts
- */
+### scripts/codemaps/generate.go
+```go
+// Generate codemaps from repository structure
+// Usage: go run scripts/codemaps/generate.go
 
-import { Project } from 'ts-morph'
-import * as fs from 'fs'
-import * as path from 'path'
+package main
 
-async function generateCodemaps() {
-  const project = new Project({
-    tsConfigFilePath: 'tsconfig.json',
-  })
+import (
+    "go/ast"
+    "go/parser"
+    "go/token"
+    "os"
+    "path/filepath"
+)
 
-  // 1. Discover all source files
-  const sourceFiles = project.getSourceFiles('src/**/*.{ts,tsx}')
+func main() {
+    // 1. Discover all Go source files
+    files := discoverGoFiles("internal/")
 
-  // 2. Build import/export graph
-  const graph = buildDependencyGraph(sourceFiles)
+    // 2. Build import/export graph using go/ast
+    graph := buildDependencyGraph(files)
 
-  // 3. Detect entrypoints (pages, API routes)
-  const entrypoints = findEntrypoints(sourceFiles)
+    // 3. Detect entrypoints (main packages, handlers)
+    entrypoints := findEntrypoints(files)
 
-  // 4. Generate codemaps
-  await generateFrontendMap(graph, entrypoints)
-  await generateBackendMap(graph, entrypoints)
-  await generateIntegrationsMap(graph)
+    // 4. Generate codemaps
+    generateBackendMap(graph, entrypoints)
+    generateIntegrationsMap(graph)
 
-  // 5. Generate index
-  await generateIndex()
+    // 5. Generate index
+    generateIndex()
 }
 
-function buildDependencyGraph(files: SourceFile[]) {
-  // Map imports/exports between files
-  // Return graph structure
+func discoverGoFiles(root string) []string {
+    var files []string
+    filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+        if filepath.Ext(path) == ".go" {
+            files = append(files, path)
+        }
+        return nil
+    })
+    return files
 }
 
-function findEntrypoints(files: SourceFile[]) {
-  // Identify pages, API routes, entry files
-  // Return list of entrypoints
+func buildDependencyGraph(files []string) map[string][]string {
+    // Parse each file with go/ast
+    // Map imports between packages
+    return nil
 }
 ```
 
-### scripts/docs/update.ts
-```typescript
-/**
- * Update documentation from code
- * Usage: tsx scripts/docs/update.ts
- */
+### scripts/docs/update.sh
+```bash
+#!/bin/bash
+# Update documentation from code
+# Usage: ./scripts/docs/update.sh
 
-import * as fs from 'fs'
-import { execSync } from 'child_process'
+# 1. Generate Go documentation
+go doc ./... > docs/API_REFERENCE.md
 
-async function updateDocs() {
-  // 1. Read codemaps
-  const codemaps = readCodemaps()
+# 2. Generate Swagger/OpenAPI
+swag init -g cmd/server/main.go -o docs/swagger
 
-  // 2. Extract JSDoc/TSDoc
-  const apiDocs = extractJSDoc('src/**/*.ts')
+# 3. Update frontend docs (React/TypeScript)
+cd web && npx typedoc --out ../docs/frontend src/
 
-  // 3. Update README.md
-  await updateReadme(codemaps, apiDocs)
+# 4. Generate dependency graph
+npx madge --image docs/CODEMAPS/frontend-deps.svg web/src/
 
-  // 4. Update guides
-  await updateGuides(codemaps)
+# 5. Run staticcheck for code quality report
+staticcheck ./... > docs/QUALITY_REPORT.md
 
-  // 5. Generate API reference
-  await generateAPIReference(apiDocs)
-}
-
-function extractJSDoc(pattern: string) {
-  // Use jsdoc-to-markdown or similar
-  // Extract documentation from source
-}
+echo "Documentation updated successfully!"
 ```
 
 ## Pull Request Template

@@ -19,25 +19,36 @@ You are an expert refactoring specialist focused on code cleanup and consolidati
 
 ## Tools at Your Disposal
 
-### Detection Tools
+### Detection Tools (Go Backend)
+- **staticcheck** - Find unused code, deprecated APIs, inefficient patterns
+- **deadcode** - Find unreachable Go code
+- **go mod tidy** - Clean unused Go dependencies
+- **golangci-lint** - Comprehensive Go linting (includes unused detection)
+
+### Detection Tools (React Frontend)
 - **knip** - Find unused files, exports, dependencies, types
 - **depcheck** - Identify unused npm dependencies
-- **ts-prune** - Find unused TypeScript exports
-- **eslint** - Check for unused disable-directives and variables
+- **eslint** - Check for unused variables and imports
 
 ### Analysis Commands
 ```bash
-# Run knip for unused exports/files/dependencies
-npx knip
+# Go unused code detection
+staticcheck ./...
 
-# Check unused dependencies
-npx depcheck
+# Find dead Go code
+deadcode ./...
 
-# Find unused TypeScript exports
-npx ts-prune
+# Clean unused Go dependencies
+go mod tidy
 
-# Check for unused disable-directives
-npx eslint . --report-unused-disable-directives
+# Comprehensive Go linting
+golangci-lint run
+
+# Frontend: Run knip for unused exports/files/dependencies
+cd web && npx knip
+
+# Frontend: Check unused npm dependencies
+cd web && npx depcheck
 ```
 
 ## Refactoring Workflow
@@ -144,7 +155,20 @@ After each removal:
 
 ## Common Patterns to Remove
 
-### 1. Unused Imports
+### 1. Unused Imports (Go)
+```go
+// ❌ Remove unused imports
+import (
+    "fmt"      // Used
+    "strings"  // Not used
+    "time"     // Not used
+)
+
+// ✅ Keep only what's used
+import "fmt"
+```
+
+### 1b. Unused Imports (React)
 ```typescript
 // ❌ Remove unused imports
 import { useState, useEffect, useMemo } from 'react' // Only useState used
@@ -153,32 +177,42 @@ import { useState, useEffect, useMemo } from 'react' // Only useState used
 import { useState } from 'react'
 ```
 
-### 2. Dead Code Branches
-```typescript
+### 2. Dead Code Branches (Go)
+```go
 // ❌ Remove unreachable code
-if (false) {
-  // This never executes
-  doSomething()
+if false {
+    // This never executes
+    doSomething()
 }
 
 // ❌ Remove unused functions
-export function unusedHelper() {
-  // No references in codebase
+func unusedHelper() {
+    // No references in codebase
 }
 ```
 
 ### 3. Duplicate Components
-```typescript
+```
 // ❌ Multiple similar components
-components/Button.tsx
-components/PrimaryButton.tsx
-components/NewButton.tsx
+web/src/components/Button.tsx
+web/src/components/PrimaryButton.tsx
+web/src/components/NewButton.tsx
 
 // ✅ Consolidate to one
-components/Button.tsx (with variant prop)
+web/src/components/Button.tsx (with variant prop)
 ```
 
-### 4. Unused Dependencies
+### 4. Unused Dependencies (Go)
+```go
+// ❌ Package in go.mod but not imported
+require (
+    github.com/some/unused v1.0.0  // Not used anywhere
+)
+
+// Run: go mod tidy to auto-remove
+```
+
+### 4b. Unused Dependencies (npm)
 ```json
 // ❌ Package installed but not imported
 {
@@ -192,25 +226,29 @@ components/Button.tsx (with variant prop)
 ## Example Project-Specific Rules
 
 **CRITICAL - NEVER REMOVE:**
-- Privy authentication code
-- Solana wallet integration
-- Supabase database clients
-- Redis/OpenAI semantic search
-- Market trading logic
-- Real-time subscription handlers
+- Shopify OAuth handlers (internal/shopify/oauth.go)
+- Session token validation middleware
+- Webhook HMAC verification (CRITICAL for security)
+- PostgreSQL repository interfaces
+- Redis cache layer implementations
+- Shopify GraphQL client
+- GDPR compliance webhooks
+- RabbitMQ consumer/producer code
 
 **SAFE TO REMOVE:**
-- Old unused components in components/ folder
+- Old unused components in web/src/components/
 - Deprecated utility functions
 - Test files for deleted features
 - Commented-out code blocks
-- Unused TypeScript types/interfaces
+- Unused Go interfaces/structs
+- Unused React components and hooks
 
 **ALWAYS VERIFY:**
-- Semantic search functionality (lib/redis.js, lib/openai.js)
-- Market data fetching (api/markets/*, api/market/[slug]/)
-- Authentication flows (HeaderWallet.tsx, UserMenu.tsx)
-- Trading functionality (Meteora SDK integration)
+- Shopify OAuth flow (internal/shopify/oauth.go)
+- Webhook processing (internal/handler/webhooks.go)
+- Session management (internal/repository/session.go)
+- GraphQL queries (internal/shopify/graphql.go)
+- Queue workers (internal/queue/consumer.go)
 
 ## Pull Request Template
 
@@ -252,9 +290,14 @@ If something breaks after removal:
 1. **Immediate rollback:**
    ```bash
    git revert HEAD
-   npm install
-   npm run build
-   npm test
+
+   # Go backend
+   go mod tidy
+   go build ./...
+   go test ./...
+
+   # React frontend
+   cd web && npm install && npm run build
    ```
 
 2. **Investigate:**

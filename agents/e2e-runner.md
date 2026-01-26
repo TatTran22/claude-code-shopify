@@ -163,6 +163,7 @@ export class MarketsPage {
 
   constructor(page: Page) {
     this.page = page
+    // Use data-testid for stable selectors (works with any component library)
     this.searchInput = page.locator('[data-testid="search-input"]')
     this.marketCards = page.locator('[data-testid="market-card"]')
     this.createMarketButton = page.locator('[data-testid="create-market-btn"]')
@@ -193,6 +194,144 @@ export class MarketsPage {
     await this.page.waitForLoadState('networkidle')
   }
 }
+```
+
+### Testing Shopify Polaris Web Components
+
+When testing apps using Shopify Polaris Web Components (`s-*` prefix), use these selector patterns:
+
+```typescript
+// pages/ProductsPage.ts - Web Component selectors
+import { Page, Locator } from '@playwright/test'
+
+export class ProductsPage {
+  readonly page: Page
+  readonly pageTitle: Locator
+  readonly productNameField: Locator
+  readonly priceField: Locator
+  readonly statusSelect: Locator
+  readonly submitButton: Locator
+  readonly errorBanner: Locator
+  readonly successBanner: Locator
+  readonly loadingSpinner: Locator
+
+  constructor(page: Page) {
+    this.page = page
+
+    // Select Web Components by tag + attribute
+    this.pageTitle = page.locator('s-page')
+    this.productNameField = page.locator('s-text-field[data-testid="product-name"]')
+    this.priceField = page.locator('s-text-field[data-testid="price"]')
+    this.statusSelect = page.locator('s-select[data-testid="status"]')
+    this.submitButton = page.locator('s-button[variant="primary"][type="submit"]')
+    this.errorBanner = page.locator('s-banner[status="critical"]')
+    this.successBanner = page.locator('s-banner[status="success"]')
+    this.loadingSpinner = page.locator('s-spinner')
+  }
+
+  async goto() {
+    await this.page.goto('/products/new')
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  async fillForm(data: { name: string; price: string; status?: string }) {
+    // Web Components use native input events
+    await this.productNameField.fill(data.name)
+    await this.priceField.fill(data.price)
+    if (data.status) {
+      await this.statusSelect.selectOption(data.status)
+    }
+  }
+
+  async submit() {
+    await this.submitButton.click()
+    // Wait for either success or error
+    await Promise.race([
+      this.successBanner.waitFor({ state: 'visible' }),
+      this.errorBanner.waitFor({ state: 'visible' }),
+    ])
+  }
+
+  async getPageTitle(): Promise<string | null> {
+    return this.pageTitle.getAttribute('title')
+  }
+
+  async hasError(): Promise<boolean> {
+    return this.errorBanner.isVisible()
+  }
+
+  async getFieldError(testId: string): Promise<string | null> {
+    const field = this.page.locator(`s-text-field[data-testid="${testId}"]`)
+    return field.getAttribute('error')
+  }
+}
+
+// Example test using Web Component selectors
+test('form validation displays errors', async ({ page }) => {
+  const productsPage = new ProductsPage(page)
+  await productsPage.goto()
+
+  // Submit empty form
+  await productsPage.submit()
+
+  // Check Web Component error attributes
+  const nameError = await productsPage.getFieldError('product-name')
+  expect(nameError).toBe('Name must be at least 3 characters')
+
+  const priceError = await productsPage.getFieldError('price')
+  expect(priceError).toBe('Price must be positive')
+})
+
+test('successful form submission', async ({ page }) => {
+  const productsPage = new ProductsPage(page)
+  await productsPage.goto()
+
+  await productsPage.fillForm({
+    name: 'Test Product',
+    price: '29.99',
+    status: 'active',
+  })
+
+  await productsPage.submit()
+
+  // Verify success banner appears
+  await expect(productsPage.successBanner).toBeVisible()
+  await expect(productsPage.successBanner).toContainText('Product created')
+})
+```
+
+#### Web Component Selector Patterns
+
+```typescript
+// By tag name
+page.locator('s-button')
+page.locator('s-text-field')
+page.locator('s-banner')
+
+// By tag + data-testid (RECOMMENDED)
+page.locator('s-button[data-testid="submit"]')
+page.locator('s-text-field[data-testid="email"]')
+
+// By tag + attribute
+page.locator('s-button[variant="primary"]')
+page.locator('s-banner[status="critical"]')
+page.locator('s-text-field[type="email"]')
+
+// By tag + multiple attributes
+page.locator('s-button[variant="primary"][type="submit"]')
+
+// Get attribute values from Web Components
+const pageTitle = await page.locator('s-page').getAttribute('title')
+const errorMessage = await page.locator('s-text-field[data-testid="email"]').getAttribute('error')
+const isDisabled = await page.locator('s-button').getAttribute('disabled')
+
+// Check loading state
+await expect(page.locator('s-button[loading]')).toBeVisible()
+await expect(page.locator('s-spinner')).toBeVisible()
+
+// Wait for loading to complete
+await page.locator('s-spinner').waitFor({ state: 'hidden' })
+await page.locator('s-button[loading]').waitFor({ state: 'detached' })
 ```
 
 ### Example Test with Best Practices

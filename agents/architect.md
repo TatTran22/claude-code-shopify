@@ -82,57 +82,59 @@ For each design decision, document:
 
 ## Common Patterns
 
-### Frontend Patterns
-- **Component Composition**: Build complex UI from simple components
-- **Container/Presenter**: Separate data logic from presentation
-- **Custom Hooks**: Reusable stateful logic
-- **Context for Global State**: Avoid prop drilling
-- **Code Splitting**: Lazy load routes and heavy components
+### Frontend Patterns (React + Vite + Polaris Web Components)
+- **Polaris Web Components**: CDN-loaded `s-*` components (no AppProvider needed)
+- **Query Key Factories**: Consistent cache keys with TanStack Query (`productKeys.list(filters)`)
+- **Controller Pattern**: React Hook Form with Zod for Web Component forms
+- **Session Token Auth**: App Bridge `getSessionToken()` for API authentication
+- **Lazy Loading**: Route-based code splitting with React.lazy()
 
-### Backend Patterns
-- **Repository Pattern**: Abstract data access
-- **Service Layer**: Business logic separation
-- **Middleware Pattern**: Request/response processing
-- **Event-Driven Architecture**: Async operations
-- **CQRS**: Separate read and write operations
+### Backend Patterns (Go + Chi + PostgreSQL + Redis + RabbitMQ)
+- **Repository Pattern**: Interface-based data access with pgx
+- **Service Layer**: Business logic separation from HTTP handlers
+- **Chi Middleware**: RequestID, RealIP, Logger, Recoverer, Auth chain
+- **Cache-Aside Pattern**: Redis caching with TTL and invalidation on writes
+- **Worker Pool Consumers**: RabbitMQ with graceful shutdown and DLQ
+- **CQRS**: Separate read/write paths for high-load operations
 
 ### Data Patterns
-- **Normalized Database**: Reduce redundancy
-- **Denormalized for Read Performance**: Optimize queries
-- **Event Sourcing**: Audit trail and replayability
-- **Caching Layers**: Redis, CDN
-- **Eventual Consistency**: For distributed systems
+- **PostgreSQL with pgx**: Connection pooling, parameterized queries, type-safe
+- **Redis Caching**: Cache-aside, write-through, session storage
+- **RabbitMQ Queues**: DLQ, exponential backoff retries, worker pools
+- **Shopify Webhooks**: HMAC verification, async processing via queue
+- **GDPR Compliance**: Data request/redaction within Shopify deadlines
 
 ## Architecture Decision Records (ADRs)
 
 For significant architectural decisions, create ADRs:
 
 ```markdown
-# ADR-001: Use Redis for Semantic Search Vector Storage
+# ADR-001: Use RabbitMQ for Async Webhook Processing
 
 ## Context
-Need to store and query 1536-dimensional embeddings for semantic market search.
+Need to process Shopify webhooks reliably without blocking HTTP responses.
+Shopify expects < 5 second response times for webhooks.
 
 ## Decision
-Use Redis Stack with vector search capability.
+Use RabbitMQ with worker pool consumers and DLQ pattern.
 
 ## Consequences
 
 ### Positive
-- Fast vector similarity search (<10ms)
-- Built-in KNN algorithm
-- Simple deployment
-- Good performance up to 100K vectors
+- Immediate webhook acknowledgment (< 100ms response)
+- Reliable processing with retries and DLQ
+- Horizontal scaling with multiple workers
+- Graceful shutdown preserves in-flight messages
 
 ### Negative
-- In-memory storage (expensive for large datasets)
-- Single point of failure without clustering
-- Limited to cosine similarity
+- Additional infrastructure (RabbitMQ cluster)
+- Complexity in monitoring and debugging
+- Need for idempotent handlers (webhook deduplication)
 
 ### Alternatives Considered
-- **PostgreSQL pgvector**: Slower, but persistent storage
-- **Pinecone**: Managed service, higher cost
-- **Weaviate**: More features, more complex setup
+- **Synchronous Processing**: Simple but blocks, risks timeouts
+- **Redis Pub/Sub**: No persistence, messages can be lost
+- **PostgreSQL LISTEN/NOTIFY**: Limited throughput
 
 ## Status
 Accepted
@@ -183,29 +185,75 @@ Watch for these architectural anti-patterns:
 - **Tight Coupling**: Components too dependent
 - **God Object**: One class/component does everything
 
-## Project-Specific Architecture (Example)
+## Project-Specific Architecture (Shopify App Example)
 
-Example architecture for an AI-powered SaaS platform:
+Example architecture for a Shopify embedded application:
 
-### Current Architecture
-- **Frontend**: Next.js 15 (Vercel/Cloud Run)
-- **Backend**: FastAPI or Express (Cloud Run/Railway)
-- **Database**: PostgreSQL (Supabase)
-- **Cache**: Redis (Upstash/Railway)
-- **AI**: Claude API with structured output
-- **Real-time**: Supabase subscriptions
+### System Overview
+
+```
++-------------------------------------------------------------+
+|                     Shopify Admin                           |
+|  +------------------------------------------------------+   |
+|  |         Embedded App (iframe)                        |   |
+|  |  React 19 + Vite 7 + Polaris Web Components          |   |
+|  |  + App Bridge (Direct Init) + TanStack Query         |   |
+|  +-------------------------+----------------------------+   |
+|                            | API Calls (Session Token)      |
++----------------------------+--------------------------------+
+                             |
+                             v
+               +---------------------------+
+               |   Go Backend (Chi Router) |
+               |  +---------------------+  |
+               |  | OAuth Handler       |  |
+               |  | Session Token Auth  |  |
+               |  | GraphQL Client      |  |
+               |  | Webhook Receivers   |  |
+               |  | GDPR Compliance     |  |
+               |  +---------------------+  |
+               +-----------+---------------+
+                           |
+             +-------------+-------------+---------------+
+             v             v             v               v
+        PostgreSQL      Redis       RabbitMQ         Shopify
+        15 (pgx)        7           3.12             Admin API
+        (Sessions)     (Cache)     (Webhooks)       (GraphQL)
+```
+
+### Backend Stack
+- **Go 1.21+** with Chi router - Fast, lightweight HTTP routing
+- **PostgreSQL 17** with pgx - Type-safe parameterized queries
+- **Redis 7** - Cache-aside pattern, session caching
+- **RabbitMQ 3.12** - Async webhook processing, DLQ, retries
+
+### Frontend Stack
+- **React 19** with Vite 7 - Fast HMR, ESM builds
+- **Shopify Polaris Web Components** - CDN-loaded `s-*` components
+- **React Hook Form + Zod** - Type-safe form validation
+- **TanStack Query** - Query key factories, prefetching, optimistic updates
+- **TypeScript** - Full type safety
+
+### Shopify Integration
+- OAuth authentication with HMAC verification
+- Session token authentication for embedded apps
+- Webhook HMAC verification (CRITICAL for security)
+- GraphQL Admin API with rate limiting
+- GDPR compliance (mandatory webhooks)
 
 ### Key Design Decisions
-1. **Hybrid Deployment**: Vercel (frontend) + Cloud Run (backend) for optimal performance
-2. **AI Integration**: Structured output with Pydantic/Zod for type safety
-3. **Real-time Updates**: Supabase subscriptions for live data
-4. **Immutable Patterns**: Spread operators for predictable state
-5. **Many Small Files**: High cohesion, low coupling
+1. **Go Backend**: High performance, strong typing, excellent concurrency
+2. **Chi Router**: Lightweight, idiomatic Go, composable middleware
+3. **Repository Pattern**: Abstracted data access with PostgreSQL/pgx
+4. **Cache-Aside Pattern**: Redis caching with invalidation on writes
+5. **Async Webhooks**: RabbitMQ for reliable webhook processing with DLQ
+6. **Session Tokens**: App Bridge session tokens instead of OAuth for API calls
+7. **Polaris Web Components**: CDN-loaded, no AppProvider needed
 
 ### Scalability Plan
-- **10K users**: Current architecture sufficient
-- **100K users**: Add Redis clustering, CDN for static assets
-- **1M users**: Microservices architecture, separate read/write databases
-- **10M users**: Event-driven architecture, distributed caching, multi-region
+- **10K shops**: Current architecture sufficient
+- **100K shops**: Add Redis clustering, CDN for static assets, read replicas
+- **1M shops**: Multiple worker instances, database sharding by shop
+- **10M shops**: Regional deployment, event sourcing, CQRS pattern
 
 **Remember**: Good architecture enables rapid development, easy maintenance, and confident scaling. The best architecture is simple, clear, and follows established patterns.

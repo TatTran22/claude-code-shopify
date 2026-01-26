@@ -1,30 +1,35 @@
 {
   "name": "everything-claude-code",
   "owner": {
-    "name": "Affaan Mustafa",
-    "email": "affaan@example.com"
+    "name": "Tat Tran",
+    "email": "tattran.dev@gmail.com"
   },
   "metadata": {
-    "description": "Battle-tested Claude Code configurations from an Anthropic hackathon winner",
+    "description": "Claude Code configurations optimized for Go/Chi/Redis/React/Vite/Shopify Polaris stack",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "everything-claude-code",
       "source": ".",
-      "description": "Complete collection of agents, skills, hooks, commands, and rules evolved over 10+ months of intensive daily use",
+      "description": "Complete collection of agents, skills, hooks, commands, and rules for building Shopify apps with Go backend and React frontend",
       "version": "1.0.0",
       "author": {
-        "name": "Affaan Mustafa"
+        "name": "Tat Tran",
+        "email": "tattran.dev@gmail.com"
       },
-      "homepage": "https://github.com/affaan-m/everything-claude-code",
-      "repository": "https://github.com/affaan-m/everything-claude-code",
+      "homepage": "https://www.facebook.com/tattran86/",
+      "repository": "https://github.com/TatTran22/claude-code-shopify",
       "license": "MIT",
       "keywords": [
         "agents",
         "skills",
         "hooks",
         "commands",
+        "go",
+        "shopify",
+        "react",
+        "rabbitmq",
         "tdd",
         "code-review",
         "security",
@@ -36,6 +41,10 @@
         "skills",
         "hooks",
         "commands",
+        "go",
+        "shopify",
+        "react",
+        "rabbitmq",
         "tdd",
         "code-review",
         "security",

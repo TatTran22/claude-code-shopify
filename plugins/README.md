@@ -1,6 +1,6 @@
 # Plugins and Marketplaces
 
-Plugins extend Claude Code with new tools and capabilities. This guide covers installation only - see the [full article](https://x.com/affaanmustafa/status/2012378465664745795) for when and why to use them.
+Plugins extend Claude Code with new tools and capabilities. This guide covers installation and recommended plugins for Go/React/Shopify development.
 
 ---
 
@@ -38,26 +38,27 @@ claude plugin marketplace add https://github.com/mixedbread-ai/mgrep
 claude plugin install typescript-lsp@claude-plugins-official
 ```
 
-### Recommended Plugins
+### Recommended Plugins for Go/React/Shopify Stack
 
-**Development:**
+**Go Development:**
+- `gopls` - Go language server (if available)
+- `golangci-lint` - Go linting integration
+
+**TypeScript/React:**
 - `typescript-lsp` - TypeScript intelligence
-- `pyright-lsp` - Python type checking
-- `hookify` - Create hooks conversationally
-- `code-simplifier` - Refactor code
+- `context7` - Live documentation lookup (React, Shopify APIs)
 
 **Code Quality:**
 - `code-review` - Code review
 - `pr-review-toolkit` - PR automation
-- `security-guidance` - Security checks
+- `security-guidance` - Security checks (important for Shopify HMAC verification)
 
 **Search:**
 - `mgrep` - Enhanced search (better than ripgrep)
-- `context7` - Live documentation lookup
 
 **Workflow:**
 - `commit-commands` - Git workflow
-- `frontend-design` - UI patterns
+- `frontend-design` - UI patterns for Polaris components
 - `feature-dev` - Feature development
 
 ---
@@ -83,3 +84,29 @@ claude plugin marketplace add https://github.com/mixedbread-ai/mgrep
 |-- known_marketplaces.json   # Added marketplaces
 |-- marketplaces/             # Marketplace data
 ```
+
+---
+
+## MCP Servers for Shopify Development
+
+Consider adding these MCP servers for Shopify app development:
+
+```json
+{
+  "mcpServers": {
+    "shopify-dev-mcp": {
+      "command": "npx",
+      "args": ["-y", "@shopify/dev-mcp@latest"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {
+        "DATABASE_URL": "postgresql://..."
+      }
+    }
+  }
+}
+```
+
+See the main README.md for full MCP configuration details.
