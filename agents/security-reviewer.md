@@ -113,7 +113,7 @@ For each category, check:
    - Is authorization checked on every route?
    - Are Shopify shop domains validated?
    - Is CORS configured properly?
-   - Chi middleware enforcing auth?
+   - Fiber middleware enforcing auth?
 
 6. Security Misconfiguration
    - Are default credentials changed?
@@ -775,7 +775,7 @@ slog.Error("Database connection failed", "error", err)
 - [ ] Structured logging (slog/zap, no fmt.Println)
 - [ ] Error handling doesn't leak sensitive info
 - [ ] HTTPS enforced (TLS 1.3+)
-- [ ] Security headers set (Chi middleware)
+- [ ] Security headers set (Fiber middleware)
 
 ### Shopify Security
 - [ ] Webhook HMAC verified (constant-time comparison)
@@ -872,7 +872,7 @@ go test -race ./...
 6. **Use structured logging** - slog/zap, not fmt.Println
 7. **Validate JSON unmarshaling** - Don't trust input
 8. **Set HTTP timeouts** - Prevent hanging connections
-9. **Use Chi middleware** - For CORS, CSRF, rate limiting
+9. **Use Fiber middleware** - For CORS, CSRF, rate limiting
 10. **Sanitize HTML output** - Use html/template
 
 ## Success Metrics

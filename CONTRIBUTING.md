@@ -1,6 +1,6 @@
-# Contributing to Everything Claude Code
+# Contributing to Claude Code Shopify
 
-Thanks for wanting to contribute. This repo is meant to be a community resource for Claude Code users.
+Thanks for wanting to contribute. This repo is meant to be a community resource for Claude Code users building Shopify apps with Go/React.
 
 ## What We're Looking For
 
@@ -60,8 +60,8 @@ New or improved MCP server configs:
 ### 1. Fork the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/everything-claude-code.git
-cd everything-claude-code
+git clone https://github.com/YOUR_USERNAME/claude-code-shopify.git
+cd claude-code-shopify
 ```
 
 ### 2. Create a branch
@@ -184,7 +184,7 @@ Then open a PR with:
 
 ## Questions?
 
-Open an issue or reach out on X: [@affaanmustafa](https://x.com/affaanmustafa)
+Open an issue on GitHub or reach out to [Tat Tran](https://github.com/TatTran22).
 
 ---
 

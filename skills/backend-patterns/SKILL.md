@@ -1,16 +1,16 @@
 ---
 skill_id: backend-patterns
-name: Go Backend Patterns with Chi Router
-description: Backend architecture patterns for Go with Chi router - API design, repository pattern, PostgreSQL/Redis integration, middleware, context propagation, and error handling
+name: Go Backend Patterns with Fiber
+description: Backend architecture patterns for Go with Fiber v3 framework - API design, repository pattern, PostgreSQL/Redis integration, middleware, context propagation, and error handling. High performance with prefork and zero-allocation.
 category: backend
-tags: [go, chi, postgresql, redis, api, middleware, repository]
+tags: [go, fiber, postgresql, redis, api, middleware, repository, fasthttp]
 applies_to: [go]
-auto_trigger: ["chi", "router", "api", "middleware", "repository", "pgx", "sqlc"]
+auto_trigger: ["fiber", "router", "api", "middleware", "repository", "pgx", "sqlc"]
 ---
 
-# Go Backend Patterns with Chi Router
+# Go Backend Patterns with Fiber
 
-Production-ready backend patterns for Go with Chi router, PostgreSQL (pgx/sqlc), Redis caching, structured logging, and error handling.
+Production-ready backend patterns for Go with Fiber v3 (fasthttp-based), PostgreSQL (pgx/sqlc), Redis caching, structured logging, and error handling. Optimized for high performance with prefork mode and zero-allocation.
 
 ## Core Architecture
 
@@ -18,9 +18,12 @@ Production-ready backend patterns for Go with Chi router, PostgreSQL (pgx/sqlc),
 HTTP Request
      │
      ▼
-Chi Router (Middleware Chain)
+Fiber App (Middleware Chain)
      │
-     ├─> Logging Middleware
+     ├─> RequestID Middleware
+     ├─> Logger Middleware
+     ├─> Recover Middleware
+     ├─> CORS Middleware
      ├─> Auth Middleware
      ├─> Rate Limit Middleware
      │
@@ -41,9 +44,9 @@ HTTP Handler
 
 ---
 
-## 1. Chi Router Patterns
+## 1. Fiber Router Patterns
 
-### 1.1 Basic Router Setup
+### 1.1 Basic Router Setup with High Performance
 
 ```go
 // cmd/api/main.go
@@ -52,115 +55,149 @@ package main
 import (
     "context"
     "log"
-    "net/http"
     "os"
     "os/signal"
     "syscall"
     "time"
 
-    "github.com/go-chi/chi/v5"
-    "github.com/go-chi/chi/v5/middleware"
-    "github.com/go-chi/cors"
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/cors"
+    "github.com/gofiber/fiber/v3/middleware/limiter"
+    "github.com/gofiber/fiber/v3/middleware/logger"
+    "github.com/gofiber/fiber/v3/middleware/recover"
+    "github.com/gofiber/fiber/v3/middleware/requestid"
+    "github.com/gofiber/fiber/v3/middleware/timeout"
+    "github.com/goccy/go-json"
 )
 
 func main() {
-    r := chi.NewRouter()
+    // Create Fiber app with high-performance config
+    app := fiber.New(fiber.Config{
+        // Performance settings
+        Prefork:       true, // Enable prefork (multi-process)
+        StrictRouting: false,
+        CaseSensitive: false,
+
+        // Timeouts
+        ReadTimeout:  15 * time.Second,
+        WriteTimeout: 15 * time.Second,
+        IdleTimeout:  60 * time.Second,
+
+        // Buffer sizes (tune based on your payloads)
+        ReadBufferSize:  8192,
+        WriteBufferSize: 8192,
+
+        // Use faster JSON encoder/decoder
+        JSONEncoder: json.Marshal,
+        JSONDecoder: json.Unmarshal,
+
+        // Error handling
+        ErrorHandler: customErrorHandler,
+    })
 
     // Core middleware (order matters!)
-    r.Use(middleware.RequestID)
-    r.Use(middleware.RealIP)
-    r.Use(middleware.Logger)
-    r.Use(middleware.Recoverer)
-    r.Use(middleware.Timeout(60 * time.Second))
+    app.Use(requestid.New())
+    app.Use(logger.New(logger.Config{
+        Format:     "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
+        TimeFormat: "2006-01-02 15:04:05",
+    }))
+    app.Use(recover.New(recover.Config{
+        EnableStackTrace: true,
+    }))
+    app.Use(timeout.New(timeout.Config{
+        Timeout: 60 * time.Second,
+    }))
 
     // CORS middleware
-    r.Use(cors.Handler(cors.Options{
-        AllowedOrigins:   []string{"https://*", "http://*"},
-        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-        ExposedHeaders:   []string{"Link"},
+    app.Use(cors.New(cors.Config{
+        AllowOrigins:     []string{"https://*", "http://*"},
+        AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+        AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+        ExposeHeaders:    []string{"Link"},
         AllowCredentials: true,
         MaxAge:           300,
     }))
 
-    // Routes
-    r.Get("/health", handleHealth)
-    r.Route("/api/v1", func(r chi.Router) {
-        // Public routes
-        r.Post("/auth/login", handleLogin)
-        r.Post("/auth/register", handleRegister)
+    // Health check (before auth)
+    app.Get("/health", handleHealth)
 
-        // Protected routes
-        r.Group(func(r chi.Router) {
-            r.Use(authMiddleware)
+    // API routes
+    api := app.Group("/api/v1")
 
-            r.Route("/markets", func(r chi.Router) {
-                r.Get("/", handleListMarkets)
-                r.Post("/", handleCreateMarket)
-                r.Get("/{id}", handleGetMarket)
-                r.Put("/{id}", handleUpdateMarket)
-                r.Delete("/{id}", handleDeleteMarket)
-            })
+    // Public routes
+    api.Post("/auth/login", handleLogin)
+    api.Post("/auth/register", handleRegister)
 
-            r.Route("/orders", func(r chi.Router) {
-                r.Get("/", handleListOrders)
-                r.Post("/", handleCreateOrder)
-            })
-        })
-    })
+    // Protected routes (with auth middleware)
+    protected := api.Group("", authMiddleware)
 
-    // Start server
-    srv := &http.Server{
-        Addr:         ":8080",
-        Handler:      r,
-        ReadTimeout:  15 * time.Second,
-        WriteTimeout: 15 * time.Second,
-        IdleTimeout:  60 * time.Second,
-    }
+    // Markets routes
+    markets := protected.Group("/markets")
+    markets.Get("/", handleListMarkets)
+    markets.Post("/", handleCreateMarket)
+    markets.Get("/:id", handleGetMarket)
+    markets.Put("/:id", handleUpdateMarket)
+    markets.Delete("/:id", handleDeleteMarket)
 
-    // Graceful shutdown
+    // Orders routes
+    orders := protected.Group("/orders")
+    orders.Get("/", handleListOrders)
+    orders.Post("/", handleCreateOrder)
+
+    // Start server in goroutine
     go func() {
-        log.Printf("Server starting on %s", srv.Addr)
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+        log.Printf("Server starting on :8080 (Prefork: %v)", app.Config().Prefork)
+        if err := app.Listen(":8080"); err != nil {
             log.Fatalf("Server failed: %v", err)
         }
     }()
 
-    // Wait for interrupt signal
+    // Graceful shutdown
     quit := make(chan os.Signal, 1)
     signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
     <-quit
 
     log.Println("Shutting down server...")
 
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-
-    if err := srv.Shutdown(ctx); err != nil {
+    if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
         log.Fatalf("Server forced to shutdown: %v", err)
     }
 
     log.Println("Server exited")
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte(`{"status":"healthy"}`))
+func handleHealth(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "status": "healthy",
+    })
+}
+
+func customErrorHandler(c fiber.Ctx, err error) error {
+    code := fiber.StatusInternalServerError
+
+    // Check if it's a Fiber error
+    if e, ok := err.(*fiber.Error); ok {
+        code = e.Code
+    }
+
+    return c.Status(code).JSON(fiber.Map{
+        "success": false,
+        "error":   err.Error(),
+    })
 }
 ```
 
-### 1.2 Chi Middleware Patterns
+### 1.2 Auth Middleware
 
 ```go
 // internal/middleware/auth.go
 package middleware
 
 import (
-    "context"
-    "net/http"
+    "fmt"
     "strings"
 
+    "github.com/gofiber/fiber/v3"
     "github.com/golang-jwt/jwt/v5"
 )
 
@@ -175,68 +212,78 @@ type Claims struct {
     jwt.RegisteredClaims
 }
 
-func Auth(jwtSecret string) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // Extract token from Authorization header
-            authHeader := r.Header.Get("Authorization")
-            if authHeader == "" {
-                respondError(w, http.StatusUnauthorized, "missing authorization header")
-                return
-            }
-
-            tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-            // Parse and validate JWT
-            token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-                if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                    return nil, fmt.Errorf("unexpected signing method")
-                }
-                return []byte(jwtSecret), nil
+func Auth(jwtSecret string) fiber.Handler {
+    return func(c fiber.Ctx) error {
+        // Extract token from Authorization header
+        authHeader := c.Get("Authorization")
+        if authHeader == "" {
+            return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+                "success": false,
+                "error":   "missing authorization header",
             })
+        }
 
-            if err != nil || !token.Valid {
-                respondError(w, http.StatusUnauthorized, "invalid token")
-                return
+        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+        // Parse and validate JWT
+        token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+                return nil, fmt.Errorf("unexpected signing method")
             }
-
-            claims, ok := token.Claims.(*Claims)
-            if !ok {
-                respondError(w, http.StatusUnauthorized, "invalid token claims")
-                return
-            }
-
-            // Add user to context
-            ctx := context.WithValue(r.Context(), UserContextKey, claims)
-            next.ServeHTTP(w, r.WithContext(ctx))
+            return []byte(jwtSecret), nil
         })
+
+        if err != nil || !token.Valid {
+            return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+                "success": false,
+                "error":   "invalid token",
+            })
+        }
+
+        claims, ok := token.Claims.(*Claims)
+        if !ok {
+            return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+                "success": false,
+                "error":   "invalid token claims",
+            })
+        }
+
+        // Store user in Locals (Fiber's context storage)
+        c.Locals("user", claims)
+
+        return c.Next()
     }
 }
 
-// RequireRole checks if user has required role
-func RequireRole(role string) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            claims, ok := r.Context().Value(UserContextKey).(*Claims)
-            if !ok {
-                respondError(w, http.StatusUnauthorized, "unauthorized")
-                return
-            }
-
-            if claims.Role != role && claims.Role != "admin" {
-                respondError(w, http.StatusForbidden, "insufficient permissions")
-                return
-            }
-
-            next.ServeHTTP(w, r)
-        })
+// GetUser retrieves user claims from Fiber context
+func GetUser(c fiber.Ctx) *Claims {
+    user, ok := c.Locals("user").(*Claims)
+    if !ok {
+        return nil
     }
+    return user
 }
 
-func respondError(w http.ResponseWriter, code int, message string) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(code)
-    json.NewEncoder(w).Encode(map[string]string{"error": message})
+// RequireRole middleware checks if user has required role
+func RequireRole(role string) fiber.Handler {
+    return func(c fiber.Ctx) error {
+        claims := GetUser(c)
+        if claims == nil {
+            return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+                "success": false,
+                "error":   "unauthorized",
+            })
+        }
+
+        if claims.Role != role && claims.Role != "admin" {
+            return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+                "success": false,
+                "error":   "insufficient permissions",
+            })
+        }
+
+        return c.Next()
+    }
 }
 ```
 
@@ -247,61 +294,38 @@ func respondError(w http.ResponseWriter, code int, message string) {
 package middleware
 
 import (
-    "context"
-    "net/http"
-    "sync"
     "time"
 
-    "golang.org/x/time/rate"
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/limiter"
 )
 
-type RateLimiter struct {
-    limiters map[string]*rate.Limiter
-    mu       sync.RWMutex
-    rate     rate.Limit
-    burst    int
-}
+// RateLimiter returns a configured rate limiting middleware
+func RateLimiter(max int, expiration time.Duration) fiber.Handler {
+    return limiter.New(limiter.Config{
+        Max:        max,
+        Expiration: expiration,
 
-func NewRateLimiter(rps int, burst int) *RateLimiter {
-    return &RateLimiter{
-        limiters: make(map[string]*rate.Limiter),
-        rate:     rate.Limit(rps),
-        burst:    burst,
-    }
-}
+        // Use IP address as rate limit key
+        KeyGenerator: func(c fiber.Ctx) string {
+            return c.IP()
+        },
 
-func (rl *RateLimiter) getLimiter(identifier string) *rate.Limiter {
-    rl.mu.Lock()
-    defer rl.mu.Unlock()
-
-    limiter, exists := rl.limiters[identifier]
-    if !exists {
-        limiter = rate.NewLimiter(rl.rate, rl.burst)
-        rl.limiters[identifier] = limiter
-    }
-
-    return limiter
-}
-
-func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Use IP address as identifier
-        ip := r.RemoteAddr
-
-        limiter := rl.getLimiter(ip)
-
-        if !limiter.Allow() {
-            w.Header().Set("Content-Type", "application/json")
-            w.WriteHeader(http.StatusTooManyRequests)
-            json.NewEncoder(w).Encode(map[string]string{
-                "error": "rate limit exceeded",
+        // Custom response when limit is reached
+        LimitReached: func(c fiber.Ctx) error {
+            return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+                "success": false,
+                "error":   "rate limit exceeded",
             })
-            return
-        }
+        },
 
-        next.ServeHTTP(w, r)
+        // Use sliding window algorithm
+        LimiterMiddleware: limiter.SlidingWindow{},
     })
 }
+
+// Usage:
+// app.Use(middleware.RateLimiter(100, 1*time.Minute))
 ```
 
 ### 1.4 Structured Logging Middleware
@@ -312,32 +336,31 @@ package middleware
 
 import (
     "log/slog"
-    "net/http"
     "time"
 
-    "github.com/go-chi/chi/v5/middleware"
+    "github.com/gofiber/fiber/v3"
+    "github.com/gofiber/fiber/v3/middleware/requestid"
 )
 
-func StructuredLogger(logger *slog.Logger) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+func StructuredLogger(logger *slog.Logger) fiber.Handler {
+    return func(c fiber.Ctx) error {
+        start := time.Now()
 
-            start := time.Now()
+        // Process request
+        err := c.Next()
 
-            defer func() {
-                logger.Info("http request",
-                    slog.String("method", r.Method),
-                    slog.String("path", r.URL.Path),
-                    slog.Int("status", ww.Status()),
-                    slog.Int("bytes", ww.BytesWritten()),
-                    slog.Duration("duration", time.Since(start)),
-                    slog.String("request_id", middleware.GetReqID(r.Context())),
-                )
-            }()
+        // Log after response
+        logger.Info("http request",
+            slog.String("method", c.Method()),
+            slog.String("path", c.Path()),
+            slog.Int("status", c.Response().StatusCode()),
+            slog.Int("bytes", len(c.Response().Body())),
+            slog.Duration("duration", time.Since(start)),
+            slog.String("request_id", requestid.FromContext(c)),
+            slog.String("ip", c.IP()),
+        )
 
-            next.ServeHTTP(ww, r)
-        })
+        return err
     }
 }
 ```
@@ -392,6 +415,7 @@ package repository
 import (
     "context"
     "fmt"
+    "time"
 
     "github.com/google/uuid"
     "github.com/jackc/pgx/v5"
@@ -850,10 +874,7 @@ func (s *MarketService) DeleteMarket(ctx context.Context, id string) error {
 package handler
 
 import (
-    "encoding/json"
-    "net/http"
-
-    "github.com/go-chi/chi/v5"
+    "github.com/gofiber/fiber/v3"
 
     "yourapp/internal/domain"
     "yourapp/internal/service"
@@ -867,112 +888,108 @@ func NewMarketHandler(service *service.MarketService) *MarketHandler {
     return &MarketHandler{service: service}
 }
 
-func (h *MarketHandler) HandleListMarkets(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-
+func (h *MarketHandler) HandleListMarkets(c fiber.Ctx) error {
     // Parse query parameters
     filters := domain.MarketFilters{
         Limit:  20,
         Offset: 0,
     }
 
-    if status := r.URL.Query().Get("status"); status != "" {
+    if status := c.Query("status"); status != "" {
         filters.Status = &status
     }
 
-    markets, err := h.service.ListMarkets(ctx, filters)
+    markets, err := h.service.ListMarkets(c.Context(), filters)
     if err != nil {
-        respondError(w, http.StatusInternalServerError, "failed to list markets")
-        return
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "success": false,
+            "error":   "failed to list markets",
+        })
     }
 
-    respondJSON(w, http.StatusOK, map[string]interface{}{
+    return c.JSON(fiber.Map{
         "success": true,
         "data":    markets,
     })
 }
 
-func (h *MarketHandler) HandleGetMarket(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    id := chi.URLParam(r, "id")
+func (h *MarketHandler) HandleGetMarket(c fiber.Ctx) error {
+    id := c.Params("id")
 
-    market, err := h.service.GetMarket(ctx, id)
+    market, err := h.service.GetMarket(c.Context(), id)
     if err != nil {
-        respondError(w, http.StatusNotFound, "market not found")
-        return
+        return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+            "success": false,
+            "error":   "market not found",
+        })
     }
 
-    respondJSON(w, http.StatusOK, map[string]interface{}{
+    return c.JSON(fiber.Map{
         "success": true,
         "data":    market,
     })
 }
 
-func (h *MarketHandler) HandleCreateMarket(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
+func (h *MarketHandler) HandleCreateMarket(c fiber.Ctx) error {
+    var market domain.Market
+    if err := c.Bind().Body(&market); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   "invalid request body",
+        })
+    }
+
+    if err := h.service.CreateMarket(c.Context(), &market); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   err.Error(),
+        })
+    }
+
+    return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+        "success": true,
+        "data":    market,
+    })
+}
+
+func (h *MarketHandler) HandleUpdateMarket(c fiber.Ctx) error {
+    id := c.Params("id")
 
     var market domain.Market
-    if err := json.NewDecoder(r.Body).Decode(&market); err != nil {
-        respondError(w, http.StatusBadRequest, "invalid request body")
-        return
+    if err := c.Bind().Body(&market); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   "invalid request body",
+        })
     }
 
-    if err := h.service.CreateMarket(ctx, &market); err != nil {
-        respondError(w, http.StatusBadRequest, err.Error())
-        return
+    if err := h.service.UpdateMarket(c.Context(), id, &market); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   err.Error(),
+        })
     }
 
-    respondJSON(w, http.StatusCreated, map[string]interface{}{
+    return c.JSON(fiber.Map{
         "success": true,
         "data":    market,
     })
 }
 
-func (h *MarketHandler) HandleUpdateMarket(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    id := chi.URLParam(r, "id")
+func (h *MarketHandler) HandleDeleteMarket(c fiber.Ctx) error {
+    id := c.Params("id")
 
-    var market domain.Market
-    if err := json.NewDecoder(r.Body).Decode(&market); err != nil {
-        respondError(w, http.StatusBadRequest, "invalid request body")
-        return
+    if err := h.service.DeleteMarket(c.Context(), id); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "success": false,
+            "error":   err.Error(),
+        })
     }
 
-    if err := h.service.UpdateMarket(ctx, id, &market); err != nil {
-        respondError(w, http.StatusBadRequest, err.Error())
-        return
-    }
-
-    respondJSON(w, http.StatusOK, map[string]interface{}{
-        "success": true,
-        "data":    market,
-    })
-}
-
-func (h *MarketHandler) HandleDeleteMarket(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    id := chi.URLParam(r, "id")
-
-    if err := h.service.DeleteMarket(ctx, id); err != nil {
-        respondError(w, http.StatusInternalServerError, err.Error())
-        return
-    }
-
-    respondJSON(w, http.StatusOK, map[string]interface{}{
+    return c.JSON(fiber.Map{
         "success": true,
         "message": "market deleted",
     })
-}
-
-// Helper functions
-func respondJSON(w http.ResponseWriter, status int, data interface{}) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    json.NewEncoder(w).Encode(data)
-}
-
-func respondError(w http.ResponseWriter, status int, message string) {
-    respondJSON(w, status, map[string]string{"error": message})
 }
 ```
 
@@ -990,6 +1007,7 @@ import (
     "fmt"
 
     "github.com/go-playground/validator/v10"
+    "github.com/gofiber/fiber/v3"
 )
 
 type Validator struct {
@@ -1019,21 +1037,26 @@ type CreateMarketRequest struct {
     Volume      float64 `json:"volume" validate:"gte=0"`
 }
 
-func (h *MarketHandler) HandleCreateMarketWithValidation(w http.ResponseWriter, r *http.Request) {
+func (h *MarketHandler) HandleCreateMarketWithValidation(c fiber.Ctx) error {
     var req CreateMarketRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        respondError(w, http.StatusBadRequest, "invalid request body")
-        return
+    if err := c.Bind().Body(&req); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   "invalid request body",
+        })
     }
 
     // Validate
-    v := validator.New()
+    v := New()
     if err := v.Validate(req); err != nil {
-        respondError(w, http.StatusBadRequest, err.Error())
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "success": false,
+            "error":   err.Error(),
+        })
     }
 
     // Process request...
+    return nil
 }
 ```
 
@@ -1048,8 +1071,7 @@ func (h *MarketHandler) HandleCreateMarketWithValidation(w http.ResponseWriter, 
 package errors
 
 import (
-    "fmt"
-    "net/http"
+    "github.com/gofiber/fiber/v3"
 )
 
 type AppError struct {
@@ -1067,25 +1089,25 @@ var (
     ErrNotFound = &AppError{
         Code:    "NOT_FOUND",
         Message: "resource not found",
-        Status:  http.StatusNotFound,
+        Status:  fiber.StatusNotFound,
     }
 
     ErrUnauthorized = &AppError{
         Code:    "UNAUTHORIZED",
         Message: "unauthorized",
-        Status:  http.StatusUnauthorized,
+        Status:  fiber.StatusUnauthorized,
     }
 
     ErrValidation = &AppError{
         Code:    "VALIDATION_ERROR",
         Message: "validation failed",
-        Status:  http.StatusBadRequest,
+        Status:  fiber.StatusBadRequest,
     }
 
     ErrInternal = &AppError{
         Code:    "INTERNAL_ERROR",
         Message: "internal server error",
-        Status:  http.StatusInternalServerError,
+        Status:  fiber.StatusInternalServerError,
     }
 )
 
@@ -1095,6 +1117,34 @@ func NewError(code, message string, status int) *AppError {
         Message: message,
         Status:  status,
     }
+}
+
+// ErrorHandler is a custom Fiber error handler
+func ErrorHandler(c fiber.Ctx, err error) error {
+    // Check for AppError
+    if appErr, ok := err.(*AppError); ok {
+        return c.Status(appErr.Status).JSON(fiber.Map{
+            "success": false,
+            "error": fiber.Map{
+                "code":    appErr.Code,
+                "message": appErr.Message,
+            },
+        })
+    }
+
+    // Check for Fiber error
+    if fiberErr, ok := err.(*fiber.Error); ok {
+        return c.Status(fiberErr.Code).JSON(fiber.Map{
+            "success": false,
+            "error":   fiberErr.Message,
+        })
+    }
+
+    // Default internal error
+    return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+        "success": false,
+        "error":   "internal server error",
+    })
 }
 ```
 
@@ -1125,42 +1175,54 @@ func (r *PostgresMarketRepository) FindByID(ctx context.Context, id string) (*do
 ### 8.1 Context with Timeout
 
 ```go
-func (h *MarketHandler) HandleCreateMarket(w http.ResponseWriter, r *http.Request) {
-    // Add timeout to context
-    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+func (h *MarketHandler) HandleCreateMarket(c fiber.Ctx) error {
+    // Fiber Ctx implements context.Context in v3
+    // Add timeout if needed
+    ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
     defer cancel()
 
     var market domain.Market
-    if err := json.NewDecoder(r.Body).Decode(&market); err != nil {
-        respondError(w, http.StatusBadRequest, "invalid request")
-        return
+    if err := c.Bind().Body(&market); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid request",
+        })
     }
 
     if err := h.service.CreateMarket(ctx, &market); err != nil {
-        respondError(w, http.StatusInternalServerError, err.Error())
-        return
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": err.Error(),
+        })
     }
 
-    respondJSON(w, http.StatusCreated, market)
+    return c.Status(fiber.StatusCreated).JSON(market)
 }
 ```
 
-### 8.2 Context Values
+### 8.2 Context Values with Fiber Locals
 
 ```go
 // Add request ID to context (in middleware)
-func RequestIDMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func RequestIDMiddleware() fiber.Handler {
+    return func(c fiber.Ctx) error {
         requestID := uuid.NewString()
-        ctx := context.WithValue(r.Context(), "request_id", requestID)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+        c.Locals("request_id", requestID)
+        return c.Next()
+    }
 }
 
 // Access request ID in handler
-func (h *Handler) SomeHandler(w http.ResponseWriter, r *http.Request) {
-    requestID, _ := r.Context().Value("request_id").(string)
+func (h *Handler) SomeHandler(c fiber.Ctx) error {
+    requestID, _ := c.Locals("request_id").(string)
     log.Printf("Request ID: %s", requestID)
+    return nil
+}
+
+// Type-safe access (Fiber v3)
+func getRequestID(c fiber.Ctx) string {
+    if id, ok := c.Locals("request_id").(string); ok {
+        return id
+    }
+    return ""
 }
 ```
 
@@ -1168,10 +1230,10 @@ func (h *Handler) SomeHandler(w http.ResponseWriter, r *http.Request) {
 
 ## 9. Best Practices
 
-### ✅ DO
+### DO
 
 ```go
-// ✅ Always use context for cancellation
+// Use Fiber's built-in context (implements context.Context)
 func (s *Service) FetchData(ctx context.Context) error {
     select {
     case <-ctx.Done():
@@ -1181,75 +1243,79 @@ func (s *Service) FetchData(ctx context.Context) error {
     }
 }
 
-// ✅ Always check errors (NEVER ignore)
+// Always check errors (NEVER ignore)
 data, err := json.Marshal(obj)
 if err != nil {
     return fmt.Errorf("failed to marshal: %w", err)
 }
 
-// ✅ Use pointer receivers for methods that modify state
-func (r *Repository) Update(ctx context.Context, id string) error {
-    r.cache.Invalidate(id)
-    return nil
+// Return errors from handlers
+func handler(c fiber.Ctx) error {
+    if err := doSomething(); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": err.Error(),
+        })
+    }
+    return c.JSON(result)
 }
 
-// ✅ Use value receivers for read-only methods on small types
-func (m Market) IsActive() bool {
-    return m.Status == "active"
-}
-
-// ✅ Use parameterized queries (pgx handles this)
+// Use parameterized queries (pgx handles this)
 query := "SELECT * FROM markets WHERE id = $1"
 err := db.QueryRow(ctx, query, id).Scan(...)
 
-// ✅ Close rows after use
+// Close rows after use
 rows, err := db.Query(ctx, query)
 if err != nil {
     return err
 }
 defer rows.Close()
 
-// ✅ Use structured logging
+// Use structured logging
 slog.Info("market created",
     slog.String("market_id", market.ID),
     slog.String("name", market.Name),
 )
 
-// ✅ Graceful shutdown
+// Graceful shutdown with Fiber
 quit := make(chan os.Signal, 1)
 signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 <-quit
+app.ShutdownWithTimeout(10 * time.Second)
+
+// Copy strings in goroutines (zero-allocation mode)
+id := c.Params("id")
+idCopy := utils.CopyString(id) // or string([]byte(id))
+go processAsync(idCopy)
 ```
 
-### ❌ DON'T
+### DON'T
 
 ```go
-// ❌ Never ignore errors
+// Never ignore errors
 data, _ := json.Marshal(obj) // WRONG
 
-// ❌ Don't use SELECT * in production
+// Don't use SELECT * in production
 query := "SELECT * FROM markets" // WRONG
 query := "SELECT id, name, status FROM markets" // CORRECT
 
-// ❌ Don't forget to defer Close()
+// Don't forget to defer Close()
 rows, _ := db.Query(ctx, query)
 // WRONG: Forgot defer rows.Close()
 
-// ❌ Don't use string concatenation for SQL (SQL injection risk)
+// Don't use string concatenation for SQL (SQL injection risk)
 query := "SELECT * FROM markets WHERE id = '" + id + "'" // DANGEROUS
 query := "SELECT * FROM markets WHERE id = $1" // CORRECT
 
-// ❌ Don't block with fmt.Println in production
+// Don't pass context values to goroutines without copying (in zero-allocation mode)
+id := c.Params("id")
+go processAsync(id) // WRONG - id may be reused
+
+// Don't block with fmt.Println in production
 fmt.Println("Debug info") // WRONG
 slog.Info("debug info") // CORRECT
 
-// ❌ Don't pass database connections without context
-func (r *Repo) Query() error {
-    return r.db.Query(query) // WRONG (no context)
-}
-
-// ❌ Don't create new connections per request
-func handler(w http.ResponseWriter, r *http.Request) {
+// Don't create new connections per request
+func handler(c fiber.Ctx) error {
     db, _ := sql.Open(...) // WRONG
 }
 ```
@@ -1279,7 +1345,7 @@ project-root/
 │   ├── handler/          # HTTP handlers
 │   │   ├── market_handler.go
 │   │   └── order_handler.go
-│   ├── middleware/       # Chi middleware
+│   ├── middleware/       # Fiber middleware
 │   │   ├── auth.go
 │   │   ├── logger.go
 │   │   └── ratelimit.go
@@ -1303,14 +1369,47 @@ project-root/
 
 ## Quick Reference
 
-### Chi Router
+### Fiber Router
 ```go
-r := chi.NewRouter()
-r.Use(middleware.Logger)
-r.Get("/path", handler)
-r.Route("/api", func(r chi.Router) {
-    r.Get("/users", getUsers)
-})
+app := fiber.New(fiber.Config{Prefork: true})
+app.Use(logger.New())
+app.Get("/path", handler)
+api := app.Group("/api")
+api.Get("/users", getUsers)
+```
+
+### Fiber Handler Signature
+```go
+func handler(c fiber.Ctx) error {
+    return c.JSON(data)
+}
+```
+
+### Route Parameters
+```go
+id := c.Params("id")           // string
+id := fiber.Params[int](c, "id") // typed (v3)
+```
+
+### Query Parameters
+```go
+status := c.Query("status")
+page := c.QueryInt("page", 1) // with default
+```
+
+### Request Body
+```go
+var req MyStruct
+if err := c.Bind().Body(&req); err != nil {
+    return err
+}
+```
+
+### JSON Response
+```go
+return c.JSON(data)
+return c.Status(201).JSON(data)
+return c.Status(400).JSON(fiber.Map{"error": "bad request"})
 ```
 
 ### PostgreSQL with pgx
@@ -1338,7 +1437,8 @@ if err != nil {
 
 ## Resources
 
-- [Chi Router Documentation](https://github.com/go-chi/chi)
+- [Fiber Documentation](https://docs.gofiber.io/)
+- [Fiber v3 Migration Guide](https://docs.gofiber.io/next/guide/migration-v3)
 - [pgx PostgreSQL Driver](https://github.com/jackc/pgx)
 - [go-redis](https://github.com/redis/go-redis)
 - [go-playground/validator](https://github.com/go-playground/validator)

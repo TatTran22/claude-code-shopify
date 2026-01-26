@@ -646,7 +646,7 @@ import (
     "time"
 
     // External packages
-    "github.com/go-chi/chi/v5"
+    "github.com/gofiber/fiber/v3"
     "github.com/jackc/pgx/v5/pgxpool"
 
     // Internal packages
@@ -656,7 +656,7 @@ import (
 
 // ❌ BAD: Mixed imports, not grouped
 import (
-    "github.com/go-chi/chi/v5"
+    "github.com/gofiber/fiber/v3"
     "fmt"
     "yourapp/internal/domain"
     "context"

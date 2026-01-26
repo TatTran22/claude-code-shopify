@@ -89,10 +89,10 @@ For each design decision, document:
 - **Session Token Auth**: App Bridge `getSessionToken()` for API authentication
 - **Lazy Loading**: Route-based code splitting with React.lazy()
 
-### Backend Patterns (Go + Chi + PostgreSQL + Redis + RabbitMQ)
+### Backend Patterns (Go + Fiber + PostgreSQL + Redis + RabbitMQ)
 - **Repository Pattern**: Interface-based data access with pgx
 - **Service Layer**: Business logic separation from HTTP handlers
-- **Chi Middleware**: RequestID, RealIP, Logger, Recoverer, Auth chain
+- **Fiber Middleware**: RequestID, RealIP, Logger, Recover, Auth chain
 - **Cache-Aside Pattern**: Redis caching with TTL and invalidation on writes
 - **Worker Pool Consumers**: RabbitMQ with graceful shutdown and DLQ
 - **CQRS**: Separate read/write paths for high-load operations
@@ -204,7 +204,7 @@ Example architecture for a Shopify embedded application:
                              |
                              v
                +---------------------------+
-               |   Go Backend (Chi Router) |
+               |   Go Backend (Fiber v3)   |
                |  +---------------------+  |
                |  | OAuth Handler       |  |
                |  | Session Token Auth  |  |
@@ -222,7 +222,7 @@ Example architecture for a Shopify embedded application:
 ```
 
 ### Backend Stack
-- **Go 1.21+** with Chi router - Fast, lightweight HTTP routing
+- **Go 1.21+** with Fiber v3 - High-performance web framework (fasthttp)
 - **PostgreSQL 17** with pgx - Type-safe parameterized queries
 - **Redis 7** - Cache-aside pattern, session caching
 - **RabbitMQ 3.12** - Async webhook processing, DLQ, retries
@@ -243,7 +243,7 @@ Example architecture for a Shopify embedded application:
 
 ### Key Design Decisions
 1. **Go Backend**: High performance, strong typing, excellent concurrency
-2. **Chi Router**: Lightweight, idiomatic Go, composable middleware
+2. **Fiber v3**: High-performance, Express-inspired, fasthttp-based
 3. **Repository Pattern**: Abstracted data access with PostgreSQL/pgx
 4. **Cache-Aside Pattern**: Redis caching with invalidation on writes
 5. **Async Webhooks**: RabbitMQ for reliable webhook processing with DLQ

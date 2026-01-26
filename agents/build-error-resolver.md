@@ -562,20 +562,21 @@ fmt.Printf("Count: %d", 123)   // Use int for %d
 
 ## Project-Specific Build Issues
 
-### Chi Router Errors
+### Fiber Router Errors
 
 ```go
-// ❌ ERROR: too many arguments in call to r.Get
-r := chi.NewRouter()
-r.Get("/api/markets", handler.GetMarkets, someMiddleware) // ERROR
+// ❌ ERROR: cannot use handler (type func(...)) as type fiber.Handler
+app := fiber.New()
+app.Get("/api/markets", handler.GetMarkets, someMiddleware) // ERROR
 
-// ✅ FIX: Chi routes take handler only; use middleware with r.Use() or r.With()
-r := chi.NewRouter()
-r.Use(someMiddleware) // Apply globally
-r.Get("/api/markets", handler.GetMarkets)
+// ✅ FIX: Fiber routes take handler only; use middleware with app.Use() or app.Group()
+app := fiber.New()
+app.Use(someMiddleware) // Apply globally
+app.Get("/api/markets", handler.GetMarkets)
 
-// OR
-r.With(someMiddleware).Get("/api/markets", handler.GetMarkets)
+// OR use Group for scoped middleware
+api := app.Group("/api", someMiddleware)
+api.Get("/markets", handler.GetMarkets)
 ```
 
 ### pgx Database Errors

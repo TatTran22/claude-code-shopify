@@ -1,16 +1,16 @@
 ---
 skill_id: shopify-integration
 name: Shopify Integration Patterns
-description: Comprehensive patterns for building Shopify apps with Go backend - OAuth, webhooks, GraphQL/REST APIs, App Bridge, and GDPR compliance
+description: Comprehensive patterns for building Shopify apps with Go backend (Fiber v3) - OAuth, webhooks, GraphQL/REST APIs, App Bridge, and GDPR compliance
 category: integration
-tags: [shopify, oauth, webhooks, graphql, app-bridge, gdpr]
+tags: [shopify, oauth, webhooks, graphql, app-bridge, gdpr, fiber]
 applies_to: [go]
 auto_trigger: ["shopify", "app-bridge", "oauth", "webhook", "admin-api", "metafield"]
 ---
 
 # Shopify Integration Patterns
 
-Comprehensive guide for building Shopify apps with Go backend. Covers authentication, API integration, webhook handling, and compliance.
+Comprehensive guide for building Shopify apps with Go backend using Fiber v3. Covers authentication, API integration, webhook handling, and compliance.
 
 ## Core Concepts
 
@@ -28,7 +28,7 @@ Comprehensive guide for building Shopify apps with Go backend. Covers authentica
                              |
                              v
                +---------------------------+
-               |   Go Backend (Chi)        |
+               |   Go Backend (Fiber)      |
                |  +---------------------+  |
                |  | OAuth Handler       |  |
                |  | Session Manager     |  |
@@ -57,9 +57,11 @@ import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
+    "encoding/json"
     "fmt"
     "net/http"
     "net/url"
+    "sort"
     "strings"
 )
 
@@ -138,7 +140,7 @@ type TokenResponse struct {
 }
 ```
 
-### 1.2 OAuth Handler (Chi Router)
+### 1.2 OAuth Handler (Fiber)
 
 ```go
 // internal/handler/oauth_handler.go
@@ -147,9 +149,11 @@ package handler
 import (
     "crypto/rand"
     "encoding/base64"
-    "net/http"
+    "fmt"
+    "os"
+    "strings"
 
-    "github.com/go-chi/chi/v5"
+    "github.com/gofiber/fiber/v3"
 )
 
 type OAuthHandler struct {
@@ -157,64 +161,82 @@ type OAuthHandler struct {
     sessionRepo SessionRepository
 }
 
+func NewOAuthHandler(config *shopify.OAuthConfig, sessionRepo SessionRepository) *OAuthHandler {
+    return &OAuthHandler{
+        config:      config,
+        sessionRepo: sessionRepo,
+    }
+}
+
 // HandleInstall initiates OAuth flow
-func (h *OAuthHandler) HandleInstall(w http.ResponseWriter, r *http.Request) {
-    shop := r.URL.Query().Get("shop")
+func (h *OAuthHandler) HandleInstall(c fiber.Ctx) error {
+    shop := c.Query("shop")
     if shop == "" {
-        http.Error(w, "missing shop parameter", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "missing shop parameter",
+        })
     }
 
     // Validate shop domain
     if !isValidShopDomain(shop) {
-        http.Error(w, "invalid shop domain", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid shop domain",
+        })
     }
 
     // Generate state for CSRF protection
     state, err := generateRandomString(32)
     if err != nil {
-        http.Error(w, "failed to generate state", http.StatusInternalServerError)
-        return
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to generate state",
+        })
     }
 
     // Store state in session (with expiry)
-    if err := h.sessionRepo.StoreOAuthState(r.Context(), shop, state); err != nil {
-        http.Error(w, "failed to store state", http.StatusInternalServerError)
-        return
+    if err := h.sessionRepo.StoreOAuthState(c.Context(), shop, state); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to store state",
+        })
     }
 
     // Redirect to Shopify OAuth
     authURL := h.config.GetAuthorizationURL(shop, state, "")
-    http.Redirect(w, r, authURL, http.StatusFound)
+    return c.Redirect().To(authURL)
 }
 
 // HandleCallback handles OAuth callback
-func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
-    query := r.URL.Query()
+func (h *OAuthHandler) HandleCallback(c fiber.Ctx) error {
+    // Get query parameters as url.Values
+    queryParams := make(url.Values)
+    c.Context().QueryArgs().VisitAll(func(key, value []byte) {
+        queryParams.Add(string(key), string(value))
+    })
 
     // Verify HMAC
-    if !h.config.VerifyHMAC(query) {
-        http.Error(w, "invalid HMAC signature", http.StatusUnauthorized)
-        return
+    if !h.config.VerifyHMAC(queryParams) {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "invalid HMAC signature",
+        })
     }
 
-    shop := query.Get("shop")
-    code := query.Get("code")
-    state := query.Get("state")
+    shop := c.Query("shop")
+    code := c.Query("code")
+    state := c.Query("state")
 
     // Verify state (CSRF protection)
-    storedState, err := h.sessionRepo.GetOAuthState(r.Context(), shop)
+    storedState, err := h.sessionRepo.GetOAuthState(c.Context(), shop)
     if err != nil || storedState != state {
-        http.Error(w, "invalid state parameter", http.StatusUnauthorized)
-        return
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "invalid state parameter",
+        })
     }
 
     // Exchange code for token
     tokenResp, err := h.config.ExchangeCodeForToken(shop, code)
     if err != nil {
-        http.Error(w, "failed to exchange token", http.StatusInternalServerError)
-        return
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to exchange token",
+        })
     }
 
     // Store access token
@@ -224,13 +246,15 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
         Scope:       tokenResp.Scope,
     }
 
-    if err := h.sessionRepo.SaveSession(r.Context(), session); err != nil {
-        http.Error(w, "failed to save session", http.StatusInternalServerError)
-        return
+    if err := h.sessionRepo.SaveSession(c.Context(), session); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to save session",
+        })
     }
 
     // Redirect to app
-    http.Redirect(w, r, fmt.Sprintf("https://%s/admin/apps/%s", shop, os.Getenv("APP_HANDLE")), http.StatusFound)
+    appURL := fmt.Sprintf("https://%s/admin/apps/%s", shop, os.Getenv("APP_HANDLE"))
+    return c.Redirect().To(appURL)
 }
 
 func generateRandomString(length int) (string, error) {
@@ -255,11 +279,10 @@ For embedded apps using App Bridge, use session tokens instead of OAuth for API 
 package middleware
 
 import (
-    "context"
     "fmt"
-    "net/http"
     "strings"
 
+    "github.com/gofiber/fiber/v3"
     "github.com/golang-jwt/jwt/v5"
 )
 
@@ -271,49 +294,58 @@ func NewSessionTokenMiddleware(clientSecret string) *SessionTokenMiddleware {
     return &SessionTokenMiddleware{clientSecret: clientSecret}
 }
 
-func (m *SessionTokenMiddleware) Verify(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Extract token from Authorization header
-        authHeader := r.Header.Get("Authorization")
-        if authHeader == "" {
-            http.Error(w, "missing authorization header", http.StatusUnauthorized)
-            return
-        }
-
-        tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-
-        // Parse and validate JWT
-        token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-            if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-                return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-            }
-            return []byte(m.clientSecret), nil
+func (m *SessionTokenMiddleware) Verify(c fiber.Ctx) error {
+    // Extract token from Authorization header
+    authHeader := c.Get("Authorization")
+    if authHeader == "" {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "missing authorization header",
         })
+    }
 
-        if err != nil || !token.Valid {
-            http.Error(w, "invalid session token", http.StatusUnauthorized)
-            return
+    tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+    // Parse and validate JWT
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
         }
-
-        claims, ok := token.Claims.(jwt.MapClaims)
-        if !ok {
-            http.Error(w, "invalid token claims", http.StatusUnauthorized)
-            return
-        }
-
-        // Extract shop domain (dest field)
-        dest, ok := claims["dest"].(string)
-        if !ok {
-            http.Error(w, "missing dest claim", http.StatusUnauthorized)
-            return
-        }
-
-        shop := strings.TrimPrefix(dest, "https://")
-
-        // Add shop to context
-        ctx := context.WithValue(r.Context(), "shop", shop)
-        next.ServeHTTP(w, r.WithContext(ctx))
+        return []byte(m.clientSecret), nil
     })
+
+    if err != nil || !token.Valid {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "invalid session token",
+        })
+    }
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "invalid token claims",
+        })
+    }
+
+    // Extract shop domain (dest field)
+    dest, ok := claims["dest"].(string)
+    if !ok {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "missing dest claim",
+        })
+    }
+
+    shop := strings.TrimPrefix(dest, "https://")
+
+    // Add shop to Locals
+    c.Locals("shop", shop)
+
+    return c.Next()
+}
+
+// GetShop retrieves shop from Fiber context
+func GetShop(c fiber.Ctx) string {
+    shop, _ := c.Locals("shop").(string)
+    return shop
 }
 ```
 
@@ -538,8 +570,7 @@ package shopify
 
 import (
     "context"
-    "fmt"
-    "strconv"
+    "strings"
     "time"
 )
 
@@ -621,8 +652,8 @@ import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/base64"
-    "io"
-    "net/http"
+
+    "github.com/gofiber/fiber/v3"
 )
 
 type WebhookVerifier struct {
@@ -634,8 +665,8 @@ func NewWebhookVerifier(secret string) *WebhookVerifier {
 }
 
 // VerifyWebhook verifies the HMAC signature of a webhook request
-func (v *WebhookVerifier) VerifyWebhook(r *http.Request, body []byte) bool {
-    hmacHeader := r.Header.Get("X-Shopify-Hmac-Sha256")
+func (v *WebhookVerifier) VerifyWebhook(c fiber.Ctx, body []byte) bool {
+    hmacHeader := c.Get("X-Shopify-Hmac-Sha256")
     if hmacHeader == "" {
         return false
     }
@@ -648,32 +679,40 @@ func (v *WebhookVerifier) VerifyWebhook(r *http.Request, body []byte) bool {
 }
 
 // WebhookMiddleware verifies webhook authenticity
-func (v *WebhookVerifier) WebhookMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Read body
-        body, err := io.ReadAll(r.Body)
-        if err != nil {
-            http.Error(w, "failed to read body", http.StatusBadRequest)
-            return
-        }
-        defer r.Body.Close()
+func (v *WebhookVerifier) WebhookMiddleware(c fiber.Ctx) error {
+    // Get raw body
+    body := c.Body()
 
-        // Verify HMAC
-        if !v.VerifyWebhook(r, body) {
-            http.Error(w, "invalid webhook signature", http.StatusUnauthorized)
-            return
-        }
+    // Verify HMAC
+    if !v.VerifyWebhook(c, body) {
+        return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+            "error": "invalid webhook signature",
+        })
+    }
 
-        // Store body in context for handler
-        ctx := context.WithValue(r.Context(), "webhook_body", body)
+    // Store body and metadata in Locals for handler
+    c.Locals("webhook_body", body)
+    c.Locals("shop_domain", c.Get("X-Shopify-Shop-Domain"))
+    c.Locals("webhook_topic", c.Get("X-Shopify-Topic"))
+    c.Locals("webhook_id", c.Get("X-Shopify-Webhook-Id"))
 
-        // Add webhook metadata to context
-        ctx = context.WithValue(ctx, "shop_domain", r.Header.Get("X-Shopify-Shop-Domain"))
-        ctx = context.WithValue(ctx, "webhook_topic", r.Header.Get("X-Shopify-Topic"))
-        ctx = context.WithValue(ctx, "webhook_id", r.Header.Get("X-Shopify-Webhook-Id"))
+    return c.Next()
+}
 
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+// Helper functions to get webhook data from context
+func GetWebhookBody(c fiber.Ctx) []byte {
+    body, _ := c.Locals("webhook_body").([]byte)
+    return body
+}
+
+func GetWebhookShop(c fiber.Ctx) string {
+    shop, _ := c.Locals("shop_domain").(string)
+    return shop
+}
+
+func GetWebhookTopic(c fiber.Ctx) string {
+    topic, _ := c.Locals("webhook_topic").(string)
+    return topic
 }
 ```
 
@@ -684,66 +723,75 @@ func (v *WebhookVerifier) WebhookMiddleware(next http.Handler) http.Handler {
 package handler
 
 import (
-    "context"
     "encoding/json"
-    "net/http"
+
+    "github.com/gofiber/fiber/v3"
 )
 
 type WebhookHandler struct {
     queue WebhookQueue
 }
 
+func NewWebhookHandler(queue WebhookQueue) *WebhookHandler {
+    return &WebhookHandler{queue: queue}
+}
+
 // HandleOrderCreate handles orders/create webhook
-func (h *WebhookHandler) HandleOrderCreate(w http.ResponseWriter, r *http.Request) {
-    body := r.Context().Value("webhook_body").([]byte)
-    shop := r.Context().Value("shop_domain").(string)
+func (h *WebhookHandler) HandleOrderCreate(c fiber.Ctx) error {
+    body := shopify.GetWebhookBody(c)
+    shop := shopify.GetWebhookShop(c)
 
     var order Order
     if err := json.Unmarshal(body, &order); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid JSON",
+        })
     }
 
     // Queue for async processing
-    if err := h.queue.EnqueueOrderCreated(r.Context(), shop, &order); err != nil {
-        http.Error(w, "failed to queue webhook", http.StatusInternalServerError)
-        return
+    if err := h.queue.EnqueueOrderCreated(c.Context(), shop, &order); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to queue webhook",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
 // HandleProductUpdate handles products/update webhook
-func (h *WebhookHandler) HandleProductUpdate(w http.ResponseWriter, r *http.Request) {
-    body := r.Context().Value("webhook_body").([]byte)
-    shop := r.Context().Value("shop_domain").(string)
+func (h *WebhookHandler) HandleProductUpdate(c fiber.Ctx) error {
+    body := shopify.GetWebhookBody(c)
+    shop := shopify.GetWebhookShop(c)
 
     var product Product
     if err := json.Unmarshal(body, &product); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid JSON",
+        })
     }
 
     // Queue for async processing
-    if err := h.queue.EnqueueProductUpdated(r.Context(), shop, &product); err != nil {
-        http.Error(w, "failed to queue webhook", http.StatusInternalServerError)
-        return
+    if err := h.queue.EnqueueProductUpdated(c.Context(), shop, &product); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to queue webhook",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
 // HandleAppUninstalled handles app/uninstalled webhook (CRITICAL)
-func (h *WebhookHandler) HandleAppUninstalled(w http.ResponseWriter, r *http.Request) {
-    shop := r.Context().Value("shop_domain").(string)
+func (h *WebhookHandler) HandleAppUninstalled(c fiber.Ctx) error {
+    shop := shopify.GetWebhookShop(c)
 
     // Delete shop data immediately (or queue for cleanup)
-    if err := h.queue.EnqueueAppUninstalled(r.Context(), shop); err != nil {
-        http.Error(w, "failed to process uninstall", http.StatusInternalServerError)
-        return
+    if err := h.queue.EnqueueAppUninstalled(c.Context(), shop); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to process uninstall",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 ```
 
@@ -755,84 +803,95 @@ package handler
 
 import (
     "encoding/json"
-    "net/http"
+
+    "github.com/gofiber/fiber/v3"
 )
 
 type GDPRWebhookHandler struct {
     service GDPRService
 }
 
+func NewGDPRWebhookHandler(service GDPRService) *GDPRWebhookHandler {
+    return &GDPRWebhookHandler{service: service}
+}
+
 // HandleCustomersDataRequest handles customers/data_request webhook
 // MUST respond within 30 days with customer data
-func (h *GDPRWebhookHandler) HandleCustomersDataRequest(w http.ResponseWriter, r *http.Request) {
-    body := r.Context().Value("webhook_body").([]byte)
+func (h *GDPRWebhookHandler) HandleCustomersDataRequest(c fiber.Ctx) error {
+    body := shopify.GetWebhookBody(c)
 
     var request CustomerDataRequest
     if err := json.Unmarshal(body, &request); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid JSON",
+        })
     }
 
     // Queue for processing (respond to merchant within 30 days)
-    if err := h.service.QueueDataRequest(r.Context(), &request); err != nil {
-        http.Error(w, "failed to queue request", http.StatusInternalServerError)
-        return
+    if err := h.service.QueueDataRequest(c.Context(), &request); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to queue request",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
 // HandleCustomersRedact handles customers/redact webhook
 // MUST delete customer data within 30 days (if no other orders)
-func (h *GDPRWebhookHandler) HandleCustomersRedact(w http.ResponseWriter, r *http.Request) {
-    body := r.Context().Value("webhook_body").([]byte)
+func (h *GDPRWebhookHandler) HandleCustomersRedact(c fiber.Ctx) error {
+    body := shopify.GetWebhookBody(c)
 
     var request CustomerRedactRequest
     if err := json.Unmarshal(body, &request); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid JSON",
+        })
     }
 
     // Queue for deletion
-    if err := h.service.QueueCustomerRedaction(r.Context(), &request); err != nil {
-        http.Error(w, "failed to queue redaction", http.StatusInternalServerError)
-        return
+    if err := h.service.QueueCustomerRedaction(c.Context(), &request); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to queue redaction",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
 // HandleShopRedact handles shop/redact webhook
 // MUST delete all shop data within 48 hours
-func (h *GDPRWebhookHandler) HandleShopRedact(w http.ResponseWriter, r *http.Request) {
-    body := r.Context().Value("webhook_body").([]byte)
+func (h *GDPRWebhookHandler) HandleShopRedact(c fiber.Ctx) error {
+    body := shopify.GetWebhookBody(c)
 
     var request ShopRedactRequest
     if err := json.Unmarshal(body, &request); err != nil {
-        http.Error(w, "invalid JSON", http.StatusBadRequest)
-        return
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+            "error": "invalid JSON",
+        })
     }
 
     // Queue for immediate deletion (48-hour deadline)
-    if err := h.service.QueueShopRedaction(r.Context(), &request); err != nil {
-        http.Error(w, "failed to queue redaction", http.StatusInternalServerError)
-        return
+    if err := h.service.QueueShopRedaction(c.Context(), &request); err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+            "error": "failed to queue redaction",
+        })
     }
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
 type CustomerDataRequest struct {
-    ShopID       int64  `json:"shop_id"`
-    ShopDomain   string `json:"shop_domain"`
-    CustomerID   int64  `json:"customer_id"`
+    ShopID       int64   `json:"shop_id"`
+    ShopDomain   string  `json:"shop_domain"`
+    CustomerID   int64   `json:"customer_id"`
     OrdersToRedact []int64 `json:"orders_to_redact"`
 }
 
 type CustomerRedactRequest struct {
-    ShopID       int64  `json:"shop_id"`
-    ShopDomain   string `json:"shop_domain"`
-    CustomerID   int64  `json:"customer_id"`
+    ShopID       int64   `json:"shop_id"`
+    ShopDomain   string  `json:"shop_domain"`
+    CustomerID   int64   `json:"customer_id"`
     OrdersToRedact []int64 `json:"orders_to_redact"`
 }
 
@@ -847,6 +906,12 @@ type ShopRedactRequest struct {
 ```go
 // internal/shopify/webhook_registration.go
 package shopify
+
+import (
+    "context"
+    "fmt"
+    "os"
+)
 
 const MutationRegisterWebhook = `
     mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
@@ -926,6 +991,34 @@ func (s *ShopifyService) RegisterAllWebhooks(ctx context.Context, shop string) e
     }
 
     return nil
+}
+```
+
+### 3.5 Webhook Routes Setup
+
+```go
+// cmd/api/main.go - Webhook routes setup
+func setupWebhookRoutes(app *fiber.App, verifier *shopify.WebhookVerifier, handler *handler.WebhookHandler, gdprHandler *handler.GDPRWebhookHandler) {
+    webhooks := app.Group("/webhooks")
+
+    // Apply webhook verification middleware to all webhook routes
+    webhooks.Use(verifier.WebhookMiddleware)
+
+    // Order webhooks
+    webhooks.Post("/orders/create", handler.HandleOrderCreate)
+    webhooks.Post("/orders/update", handler.HandleOrderUpdate)
+
+    // Product webhooks
+    webhooks.Post("/products/update", handler.HandleProductUpdate)
+
+    // App lifecycle
+    webhooks.Post("/app/uninstalled", handler.HandleAppUninstalled)
+
+    // GDPR mandatory webhooks
+    gdpr := webhooks.Group("/gdpr")
+    gdpr.Post("/customers_data_request", gdprHandler.HandleCustomersDataRequest)
+    gdpr.Post("/customers_redact", gdprHandler.HandleCustomersRedact)
+    gdpr.Post("/shop_redact", gdprHandler.HandleShopRedact)
 }
 ```
 
@@ -1123,6 +1216,11 @@ export function useNavigation() {
 // internal/shopify/metafield.go
 package shopify
 
+import (
+    "context"
+    "fmt"
+)
+
 func (s *ShopifyService) SetProductMetafield(ctx context.Context, shop, productID, namespace, key, value, valueType string) error {
     client := s.getClient(shop)
 
@@ -1161,19 +1259,19 @@ func (s *ShopifyService) SetProductMetafield(ctx context.Context, shop, productI
 
 ## 6. Best Practices
 
-### ✅ DO
+### DO
 
 ```go
-// ✅ Always verify webhook HMAC signatures
-func (v *WebhookVerifier) VerifyWebhook(r *http.Request, body []byte) bool {
-    hmacHeader := r.Header.Get("X-Shopify-Hmac-Sha256")
+// Always verify webhook HMAC signatures
+func (v *WebhookVerifier) VerifyWebhook(c fiber.Ctx, body []byte) bool {
+    hmacHeader := c.Get("X-Shopify-Hmac-Sha256")
     mac := hmac.New(sha256.New, []byte(v.secret))
     mac.Write(body)
     expectedMAC := base64.StdEncoding.EncodeToString(mac.Sum(nil))
     return hmac.Equal([]byte(hmacHeader), []byte(expectedMAC))
 }
 
-// ✅ Handle rate limiting with exponential backoff
+// Handle rate limiting with exponential backoff
 func (c *RateLimitedClient) QueryWithRetry(ctx context.Context, query string) error {
     for attempt := 0; attempt <= c.maxRetries; attempt++ {
         err := c.client.Query(ctx, query, nil, nil)
@@ -1190,54 +1288,55 @@ func (c *RateLimitedClient) QueryWithRetry(ctx context.Context, query string) er
     return fmt.Errorf("max retries exceeded")
 }
 
-// ✅ Use context for cancellation
+// Use context for cancellation
 func (s *ShopifyService) FetchProducts(ctx context.Context, shop string) error {
     client := s.getClient(shop)
     return client.Query(ctx, QueryProducts, nil, nil)
 }
 
-// ✅ Queue webhooks for async processing
-func (h *WebhookHandler) HandleOrderCreate(w http.ResponseWriter, r *http.Request) {
-    h.queue.Enqueue(r.Context(), order)
-    w.WriteHeader(http.StatusOK) // Respond immediately
+// Queue webhooks for async processing
+func (h *WebhookHandler) HandleOrderCreate(c fiber.Ctx) error {
+    h.queue.Enqueue(c.Context(), order)
+    return c.SendStatus(fiber.StatusOK) // Respond immediately
 }
 
-// ✅ Register GDPR webhooks (MANDATORY for public apps)
+// Register GDPR webhooks (MANDATORY for public apps)
 webhooks := []string{
     "CUSTOMERS_DATA_REQUEST",
     "CUSTOMERS_REDACT",
     "SHOP_REDACT",
 }
 
-// ✅ Validate shop domain before OAuth
+// Validate shop domain before OAuth
 func isValidShopDomain(shop string) bool {
     return strings.HasSuffix(shop, ".myshopify.com")
 }
 ```
 
-### ❌ DON'T
+### DON'T
 
 ```go
-// ❌ Never skip webhook verification
-func HandleWebhook(w http.ResponseWriter, r *http.Request) {
+// Never skip webhook verification
+func HandleWebhook(c fiber.Ctx) error {
     // DANGEROUS: Processing unverified webhooks
-    body, _ := io.ReadAll(r.Body)
+    body := c.Body()
     processWebhook(body)
+    return nil
 }
 
-// ❌ Don't expose client secret in frontend
+// Don't expose client secret in frontend
 // Store in backend environment variables only
 const ClientSecret = "shpss_abc123" // WRONG
 
-// ❌ Don't process webhooks synchronously
-func HandleOrderCreate(w http.ResponseWriter, r *http.Request) {
+// Don't process webhooks synchronously
+func HandleOrderCreate(c fiber.Ctx) error {
     // SLOW: Blocks webhook response
     processOrder(order)
     time.Sleep(5 * time.Second)
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 
-// ❌ Don't ignore rate limiting
+// Don't ignore rate limiting
 func FetchAllProducts() {
     // DANGEROUS: No rate limit handling
     for {
@@ -1245,10 +1344,10 @@ func FetchAllProducts() {
     }
 }
 
-// ❌ Don't forget to handle app/uninstalled webhook
+// Don't forget to handle app/uninstalled webhook
 // MUST clean up shop data when app is uninstalled
 
-// ❌ Don't store access tokens in plain text
+// Don't store access tokens in plain text
 // Encrypt sensitive data in database
 ```
 
@@ -1261,6 +1360,8 @@ func FetchAllProducts() {
 ```go
 // internal/shopify/mock_client.go
 package shopify
+
+import "context"
 
 type MockGraphQLClient struct {
     QueryFunc func(ctx context.Context, query string, variables map[string]interface{}, result interface{}) error
@@ -1281,11 +1382,15 @@ func (m *MockGraphQLClient) Query(ctx context.Context, query string, variables m
 package shopify_test
 
 import (
-    "bytes"
-    "net/http"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/base64"
+    "io"
     "net/http/httptest"
+    "strings"
     "testing"
 
+    "github.com/gofiber/fiber/v3"
     "github.com/stretchr/testify/assert"
 )
 
@@ -1294,10 +1399,10 @@ func TestWebhookVerification(t *testing.T) {
     verifier := shopify.NewWebhookVerifier(secret)
 
     tests := []struct {
-        name       string
-        body       []byte
-        hmac       string
-        wantValid  bool
+        name      string
+        body      []byte
+        hmac      string
+        wantValid bool
     }{
         {
             name:      "valid webhook",
@@ -1315,13 +1420,30 @@ func TestWebhookVerification(t *testing.T) {
 
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
-            req := httptest.NewRequest("POST", "/webhook", bytes.NewReader(tt.body))
-            req.Header.Set("X-Shopify-Hmac-Sha256", tt.hmac)
+            app := fiber.New()
+            app.Post("/webhook", func(c fiber.Ctx) error {
+                valid := verifier.VerifyWebhook(c, tt.body)
+                if valid != tt.wantValid {
+                    t.Errorf("VerifyWebhook() = %v, want %v", valid, tt.wantValid)
+                }
+                return nil
+            })
 
-            valid := verifier.VerifyWebhook(req, tt.body)
-            assert.Equal(t, tt.wantValid, valid)
+            req := httptest.NewRequest("POST", "/webhook", strings.NewReader(string(tt.body)))
+            req.Header.Set("X-Shopify-Hmac-Sha256", tt.hmac)
+            req.Header.Set("Content-Type", "application/json")
+
+            resp, err := app.Test(req)
+            assert.NoError(t, err)
+            assert.Equal(t, 200, resp.StatusCode)
         })
     }
+}
+
+func computeHMAC(t *testing.T, secret string, body []byte) string {
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write(body)
+    return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 ```
 

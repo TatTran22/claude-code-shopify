@@ -12,7 +12,7 @@ This skill ensures all Go code development follows TDD principles with comprehen
 - Writing new features or functionality
 - Fixing bugs or issues
 - Refactoring existing code
-- Adding API endpoints (Chi router)
+- Adding API endpoints (Fiber)
 - Creating new services or repositories
 - Adding Shopify webhook handlers
 

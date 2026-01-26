@@ -17,25 +17,27 @@ type Meta struct {
     Limit  int `json:"limit"`
 }
 
-// Usage
-func respondSuccess(w http.ResponseWriter, data interface{}) {
-    response := APIResponse[interface{}]{
+// Usage with Fiber
+func respondSuccess(c fiber.Ctx, data interface{}) error {
+    return c.JSON(APIResponse[interface{}]{
         Success: true,
         Data:    &data,
-    }
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(response)
+    })
 }
 
-func respondError(w http.ResponseWriter, statusCode int, message string) {
-    response := APIResponse[interface{}]{
+func respondError(c fiber.Ctx, statusCode int, message string) error {
+    return c.Status(statusCode).JSON(APIResponse[interface{}]{
         Success: false,
         Error:   message,
-    }
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(statusCode)
-    json.NewEncoder(w).Encode(response)
+    })
+}
+
+// Or use fiber.Map for simpler cases
+func handleExample(c fiber.Ctx) error {
+    return c.JSON(fiber.Map{
+        "success": true,
+        "data":    someData,
+    })
 }
 ```
 
@@ -117,37 +119,43 @@ func (s *MarketService) CreateMarket(ctx context.Context, market *Market) error 
 
 ---
 
-## Middleware Pattern (Chi)
+## Middleware Pattern (Fiber)
 
 ```go
-// Middleware function signature: func(http.Handler) http.Handler
-func LoggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
+// Middleware function signature: func(c fiber.Ctx) error
+func LoggingMiddleware(c fiber.Ctx) error {
+    start := time.Now()
 
-        // Call next handler
-        next.ServeHTTP(w, r)
+    // Call next handler
+    err := c.Next()
 
-        // Log after request
-        log.Printf("%s %s %v", r.Method, r.URL.Path, time.Since(start))
-    })
+    // Log after request
+    log.Printf("%s %s %v", c.Method(), c.Path(), time.Since(start))
+
+    return err
 }
 
-// Auth middleware
-func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            token := r.Header.Get("Authorization")
-            if token == "" {
-                http.Error(w, "unauthorized", http.StatusUnauthorized)
-                return
-            }
+// Auth middleware with configuration
+func AuthMiddleware(jwtSecret string) fiber.Handler {
+    return func(c fiber.Ctx) error {
+        token := c.Get("Authorization")
+        if token == "" {
+            return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+                "error": "unauthorized",
+            })
+        }
 
-            // Validate token...
-            next.ServeHTTP(w, r)
-        })
+        // Validate token...
+        // Store user in context: c.Locals("user", claims)
+
+        return c.Next()
     }
 }
+
+// Usage
+app := fiber.New()
+app.Use(LoggingMiddleware)
+app.Use(AuthMiddleware(os.Getenv("JWT_SECRET")))
 ```
 
 ---
@@ -297,11 +305,19 @@ func main() {
     marketService := service.NewMarketService(marketRepo, cache)
 
     // Create handlers
-    handler := handler.NewHandler(marketService, logger)
+    h := handler.NewHandler(marketService, logger)
+
+    // Setup Fiber app
+    app := fiber.New(fiber.Config{
+        Prefork: true,
+    })
 
     // Setup routes
-    r := chi.NewRouter()
-    r.Get("/markets", handler.HandleGetMarkets)
+    api := app.Group("/api/v1")
+    api.Get("/markets", h.HandleGetMarkets)
+    api.Get("/markets/:id", h.HandleGetMarket)
+
+    app.Listen(":8080")
 }
 ```
 
@@ -324,8 +340,8 @@ When implementing new functionality:
 
 3. **Clone best match as foundation**
    ```bash
-   git clone https://github.com/user/go-chi-example.git
-   cd go-chi-example
+   git clone https://github.com/user/go-fiber-example.git
+   cd go-fiber-example
    # Review structure, adapt to your needs
    ```
 

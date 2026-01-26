@@ -1111,10 +1111,7 @@ func main() {
 package queue
 
 import (
-    "context"
-    "encoding/json"
-    "net/http"
-    "time"
+    "github.com/gofiber/fiber/v3"
 )
 
 type HealthChecker struct {
@@ -1125,24 +1122,18 @@ func NewHealthChecker(pool *ConnectionPool) *HealthChecker {
     return &HealthChecker{pool: pool}
 }
 
-func (h *HealthChecker) HandleHealth(w http.ResponseWriter, r *http.Request) {
-    ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-    defer cancel()
-
+func (h *HealthChecker) HandleHealth(c fiber.Ctx) error {
     // Try to get a channel (tests connection)
     ch, err := h.pool.GetChannel()
     if err != nil {
-        w.WriteHeader(http.StatusServiceUnavailable)
-        json.NewEncoder(w).Encode(map[string]string{
+        return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
             "status": "unhealthy",
             "error":  err.Error(),
         })
-        return
     }
     h.pool.ReturnChannel(ch)
 
-    w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]string{
+    return c.JSON(fiber.Map{
         "status": "healthy",
     })
 }

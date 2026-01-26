@@ -79,7 +79,7 @@ project-root/
 │   ├── repository/       # Data access
 │   ├── service/          # Business logic
 │   ├── handler/          # HTTP handlers
-│   └── middleware/       # Chi middleware
+│   └── middleware/       # Fiber middleware
 ├── migrations/           # Database migrations
 ├── go.mod
 └── go.sum

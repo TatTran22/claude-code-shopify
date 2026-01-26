@@ -317,7 +317,7 @@ CRITICAL issues that ALWAYS block merge:
 - Use session tokens correctly
 - No Shopify secrets in frontend code
 
-### Database (Chi + pgx)
+### Database (Fiber + pgx)
 - Always use parameterized queries ($1, $2, etc.)
 - Use transactions for multi-step operations
 - Add database indexes for queried fields

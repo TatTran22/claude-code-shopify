@@ -5,13 +5,13 @@ description: Use this skill when adding authentication, handling user input, wor
 
 # Security Review Skill (Go + Shopify)
 
-This skill ensures all Go code follows security best practices and identifies potential vulnerabilities specific to Go/Chi/Shopify applications.
+This skill ensures all Go code follows security best practices and identifies potential vulnerabilities specific to Go/Fiber/Shopify applications.
 
 ## When to Activate
 
 - Implementing authentication or authorization
 - Handling user input or file uploads
-- Creating new API endpoints (Chi router)
+- Creating new API endpoints (Fiber)
 - Adding Shopify webhooks or OAuth
 - Working with secrets or credentials
 - Implementing payment features
@@ -201,72 +201,80 @@ func CreateMarket(w http.ResponseWriter, r *http.Request) {
 
 #### JWT Token Validation
 ```go
-import "github.com/golang-jwt/jwt/v5"
+import (
+	"github.com/gofiber/fiber/v3"
+	"github.com/golang-jwt/jwt/v5"
+)
 
-func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, "Missing authorization header", http.StatusUnauthorized)
-				return
-			}
-
-			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-			if tokenString == authHeader {
-				http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
-				return
-			}
-
-			// Parse and validate token
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				// Validate signing method
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-				}
-				return []byte(jwtSecret), nil
+func AuthMiddleware(jwtSecret string) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		authHeader := c.Get("Authorization")
+		if authHeader == "" {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "missing authorization header",
 			})
+		}
 
-			if err != nil || !token.Valid {
-				http.Error(w, "Invalid token", http.StatusUnauthorized)
-				return
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if tokenString == authHeader {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "invalid authorization format",
+			})
+		}
+
+		// Parse and validate token
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Validate signing method
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 			}
-
-			// Extract claims and add to context
-			claims, ok := token.Claims.(jwt.MapClaims)
-			if !ok {
-				http.Error(w, "Invalid claims", http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), "userID", claims["sub"])
-			next.ServeHTTP(w, r.WithContext(ctx))
+			return []byte(jwtSecret), nil
 		})
+
+		if err != nil || !token.Valid {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "invalid token",
+			})
+		}
+
+		// Extract claims and store in Locals
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "invalid claims",
+			})
+		}
+
+		c.Locals("userID", claims["sub"])
+		return c.Next()
 	}
 }
 ```
 
 #### Authorization Checks
 ```go
-func DeleteMarket(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value("userID").(string)
-	marketID := chi.URLParam(r, "id")
+func DeleteMarket(c fiber.Ctx) error {
+	userID := fiber.Locals[string](c, "userID")
+	marketID := c.Params("id")
 
 	// Verify ownership
-	market, err := repo.FindByID(r.Context(), marketID)
+	market, err := repo.FindByID(c.Context(), marketID)
 	if err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "not found",
+		})
 	}
 
 	if market.OwnerID != userID {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "forbidden",
+		})
 	}
 
 	// Proceed with deletion
-	err = repo.Delete(r.Context(), marketID)
+	err = repo.Delete(c.Context(), marketID)
 	// ...
+	return nil
 }
 ```
 

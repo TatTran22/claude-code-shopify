@@ -59,7 +59,7 @@ d) Detect framework patterns (Next.js, Node.js, etc.)
 For each module:
 - Extract exports (public API)
 - Map imports (dependencies)
-- Identify routes (Chi router endpoints, React pages)
+- Identify routes (Fiber router endpoints, React pages)
 - Find database models (PostgreSQL with pgx)
 - Locate queue/worker modules (RabbitMQ consumers)
 ```
@@ -182,7 +182,7 @@ User → React Page → TanStack Query → Go API → PostgreSQL/Redis → Respo
 # Backend Architecture
 
 **Last Updated:** YYYY-MM-DD
-**Runtime:** Go 1.21+ with Chi router
+**Runtime:** Go 1.21+ with Fiber v3
 **Entry Point:** cmd/server/main.go
 
 ## Directory Structure
@@ -193,7 +193,7 @@ internal/
 ├── handler/            # HTTP handlers
 ├── service/            # Business logic
 ├── repository/         # Data access (pgx)
-├── middleware/         # Chi middleware
+├── middleware/         # Fiber middleware
 ├── shopify/            # Shopify OAuth, webhooks, GraphQL
 └── queue/              # RabbitMQ producers/consumers
 
@@ -208,7 +208,7 @@ internal/
 
 ## Data Flow
 
-HTTP Request → Chi Router → Middleware → Handler → Service → Repository → PostgreSQL/Redis
+HTTP Request → Fiber Router → Middleware → Handler → Service → Repository → PostgreSQL/Redis
 
 ## External Services
 

@@ -338,7 +338,7 @@ Coverage: 100% ✅ (Target: 80%)
 - Database operations (use testcontainers-go)
 - Redis caching (use miniredis or test containers)
 - RabbitMQ consumers (use test containers)
-- Chi handlers with middleware
+- Fiber handlers with middleware
 
 **E2E Tests** (use `/e2e` command):
 - Critical user flows

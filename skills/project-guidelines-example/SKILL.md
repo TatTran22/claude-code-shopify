@@ -21,7 +21,7 @@ Reference this skill when working on the specific project it's designed for. Pro
 
 **Tech Stack:**
 - **Frontend**: React 19 + Vite 7, TypeScript, Shopify Polaris Web Components
-- **Backend**: Go 1.21+ with Chi router
+- **Backend**: Go 1.21+ with Fiber v3
 - **Database**: PostgreSQL 17 with pgx
 - **Cache**: Redis 7
 - **Queue**: RabbitMQ 3.12
@@ -39,7 +39,7 @@ Reference this skill when working on the specific project it's designed for. Pro
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                         Go Backend                          │
-│  Chi Router + pgx + Redis + RabbitMQ                        │
+│  Fiber v3 + pgx + Redis + RabbitMQ                          │
 │  Deployed: Cloud Run / Fly.io / Railway                     │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -67,7 +67,7 @@ project/
 │   │   ├── auth.go           # OAuth handlers
 │   │   ├── products.go       # Product API handlers
 │   │   └── webhooks.go       # Webhook handlers
-│   ├── middleware/           # Chi middleware
+│   ├── middleware/           # Fiber middleware
 │   │   ├── auth.go           # Session token validation
 │   │   ├── logging.go        # Request logging
 │   │   └── recovery.go       # Panic recovery
@@ -105,8 +105,7 @@ project/
 package handler
 
 import (
-    "encoding/json"
-    "net/http"
+    "github.com/gofiber/fiber/v3"
 )
 
 type ApiResponse[T any] struct {
@@ -115,19 +114,15 @@ type ApiResponse[T any] struct {
     Error   string `json:"error,omitempty"`
 }
 
-func RespondJSON[T any](w http.ResponseWriter, status int, data T) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    json.NewEncoder(w).Encode(ApiResponse[T]{
+func RespondJSON[T any](c fiber.Ctx, status int, data T) error {
+    return c.Status(status).JSON(ApiResponse[T]{
         Success: true,
         Data:    data,
     })
 }
 
-func RespondError(w http.ResponseWriter, status int, err string) {
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(status)
-    json.NewEncoder(w).Encode(ApiResponse[any]{
+func RespondError(c fiber.Ctx, status int, err string) error {
+    return c.Status(status).JSON(ApiResponse[any]{
         Success: false,
         Error:   err,
     })
@@ -189,33 +184,32 @@ import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/base64"
-    "io"
-    "net/http"
+
+    "github.com/gofiber/fiber/v3"
 )
 
-func (h *WebhookHandler) VerifyHMAC(r *http.Request) bool {
-    body, _ := io.ReadAll(r.Body)
+func (h *WebhookHandler) VerifyHMAC(c fiber.Ctx) bool {
+    body := c.Body()
 
     mac := hmac.New(sha256.New, []byte(h.shopifySecret))
     mac.Write(body)
     expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
     return hmac.Equal(
-        []byte(r.Header.Get("X-Shopify-Hmac-SHA256")),
+        []byte(c.Get("X-Shopify-Hmac-SHA256")),
         []byte(expected),
     )
 }
 
-func (h *WebhookHandler) HandleOrderCreate(w http.ResponseWriter, r *http.Request) {
-    if !h.VerifyHMAC(r) {
-        RespondError(w, http.StatusUnauthorized, "Invalid HMAC")
-        return
+func (h *WebhookHandler) HandleOrderCreate(c fiber.Ctx) error {
+    if !h.VerifyHMAC(c) {
+        return RespondError(c, fiber.StatusUnauthorized, "Invalid HMAC")
     }
 
     // Publish to queue for async processing
-    h.queue.Publish("orders.created", r.Body)
+    h.queue.Publish("orders.created", c.Body())
 
-    w.WriteHeader(http.StatusOK)
+    return c.SendStatus(fiber.StatusOK)
 }
 ```
 
@@ -288,25 +282,25 @@ go test ./internal/handler/... -v
 package handler_test
 
 import (
-    "net/http"
     "net/http/httptest"
     "testing"
 
-    "github.com/go-chi/chi/v5"
+    "github.com/gofiber/fiber/v3"
 )
 
 func TestHealthCheck(t *testing.T) {
-    r := chi.NewRouter()
+    app := fiber.New()
     h := NewHealthHandler()
-    r.Get("/health", h.Handle)
+    app.Get("/health", h.Handle)
 
     req := httptest.NewRequest("GET", "/health", nil)
-    w := httptest.NewRecorder()
+    resp, err := app.Test(req, -1)
+    if err != nil {
+        t.Fatalf("Test request failed: %v", err)
+    }
 
-    r.ServeHTTP(w, req)
-
-    if w.Code != http.StatusOK {
-        t.Errorf("expected status 200, got %d", w.Code)
+    if resp.StatusCode != fiber.StatusOK {
+        t.Errorf("expected status 200, got %d", resp.StatusCode)
     }
 }
 ```
