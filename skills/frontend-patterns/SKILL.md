@@ -175,125 +175,91 @@ function App() {
 
 ### 2.1 TypeScript Declarations
 
-```typescript
-// src/types/polaris-web-components.d.ts
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      's-page': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        title?: string;
-        'primary-action'?: string;
-        'secondary-actions'?: string;
-      }, HTMLElement>;
-      's-section': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        heading?: string;
-      }, HTMLElement>;
-      's-stack': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        gap?: 'none' | 'small' | 'base' | 'large';
-        direction?: 'horizontal' | 'vertical';
-      }, HTMLElement>;
-      's-grid': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        columns?: string;
-        gap?: string;
-      }, HTMLElement>;
-      's-box': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        padding?: string;
-        background?: string;
-      }, HTMLElement>;
-      's-button': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        variant?: 'primary' | 'secondary' | 'plain' | 'destructive';
-        loading?: boolean;
-        disabled?: boolean;
-        type?: 'button' | 'submit' | 'reset';
-      }, HTMLElement>;
-      's-button-group': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-      's-text-field': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        label?: string;
-        value?: string;
-        error?: string;
-        type?: string;
-        required?: boolean;
-        placeholder?: string;
-        name?: string;
-      }, HTMLElement>;
-      's-select': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        label?: string;
-        value?: string;
-        error?: string;
-        options?: string;
-        name?: string;
-      }, HTMLElement>;
-      's-checkbox': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        label?: string;
-        checked?: boolean;
-        name?: string;
-      }, HTMLElement>;
-      's-choice-list': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        title?: string;
-        choices?: string;
-        selected?: string;
-        name?: string;
-      }, HTMLElement>;
-      's-switch': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        label?: string;
-        checked?: boolean;
-        name?: string;
-      }, HTMLElement>;
-      's-banner': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        status?: 'info' | 'success' | 'warning' | 'critical';
-        heading?: string;
-      }, HTMLElement>;
-      's-badge': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        status?: 'info' | 'success' | 'warning' | 'critical' | 'attention';
-      }, HTMLElement>;
-      's-spinner': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        size?: 'small' | 'large';
-      }, HTMLElement>;
-      's-modal': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        open?: boolean;
-        title?: string;
-      }, HTMLElement>;
-      's-popover': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        active?: boolean;
-      }, HTMLElement>;
-      's-heading': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        level?: '1' | '2' | '3' | '4' | '5' | '6';
-      }, HTMLElement>;
-      's-text': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        variant?: 'headingXl' | 'headingLg' | 'headingMd' | 'headingSm' | 'bodyLg' | 'bodyMd' | 'bodySm';
-        tone?: 'subdued' | 'success' | 'critical' | 'caution';
-      }, HTMLElement>;
-      's-paragraph': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-      's-link': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        url?: string;
-        external?: boolean;
-      }, HTMLElement>;
-      's-table': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement>;
-      's-drop-zone': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        accept?: string;
-        type?: string;
-      }, HTMLElement>;
-      's-thumbnail': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        source?: string;
-        alt?: string;
-        size?: 'small' | 'medium' | 'large';
-      }, HTMLElement>;
-      's-avatar': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        source?: string;
-        initials?: string;
-        size?: 'small' | 'medium' | 'large';
-      }, HTMLElement>;
-      's-icon': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        source?: string;
-      }, HTMLElement>;
-      's-tooltip': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement> & {
-        content?: string;
-      }, HTMLElement>;
-    }
+Shopify provides official TypeScript type packages for both App Bridge and Polaris Web Components. Use these packages instead of manual type declarations.
+
+#### App Bridge Types
+
+The `@shopify/app-bridge-types` package provides TypeScript types for the global `shopify` object and all App Bridge APIs.
+
+**Installation:**
+
+```bash
+# npm
+npm install --save-dev @shopify/app-bridge-types
+
+# yarn
+yarn add --dev @shopify/app-bridge-types
+```
+
+**Configuration (tsconfig.json):**
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@shopify/app-bridge-types"]
   }
 }
+```
 
-export {}
+> **Note:** If you're using the `@shopify/app-bridge-react` library, the types package is already included.
+
+#### Polaris Web Components Types
+
+The `@shopify/polaris-types` package provides TypeScript types for all Polaris web components (`s-page`, `s-button`, `s-text-field`, etc.).
+
+**Installation:**
+
+```bash
+# npm
+npm install --save-dev @shopify/polaris-types
+
+# yarn
+yarn add --dev @shopify/polaris-types
+```
+
+**For CDN usage** (https://cdn.shopify.com/shopifycloud/polaris.js), specify `latest` in package.json:
+
+```json
+{
+  "devDependencies": {
+    "@shopify/polaris-types": "latest"
+  }
+}
+```
+
+**Configuration (tsconfig.json):**
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@shopify/polaris-types"]
+  }
+}
+```
+
+#### Combined Configuration
+
+If using both App Bridge and Polaris Web Components:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@shopify/app-bridge-types", "@shopify/polaris-types"]
+  }
+}
+```
+
+#### Optional ESLint Configuration
+
+If your app uses ESLint, add the global `shopify` object to your configuration:
+
+```javascript
+// .eslintrc.cjs
+module.exports = {
+  globals: {
+    shopify: 'readonly',
+  },
+};
 ```
 
 ### 2.2 Component Reference
@@ -321,25 +287,25 @@ export default function Dashboard() {
     <s-page title="Dashboard">
       <s-section heading="Overview">
         <s-stack gap="base">
-          <s-grid columns="3">
-            <s-box padding="base" background="surface">
-              <s-stack gap="small">
-                <s-text variant="headingMd">Total Revenue</s-text>
-                <s-text variant="headingXl">$12,345</s-text>
+          <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="base">
+            <s-box padding="base" background="subdued" borderRadius="base">
+              <s-stack gap="small-100">
+                <s-text color="subdued">Total Revenue</s-text>
+                <s-heading>$12,345</s-heading>
               </s-stack>
             </s-box>
 
-            <s-box padding="base" background="surface">
-              <s-stack gap="small">
-                <s-text variant="headingMd">Orders</s-text>
-                <s-text variant="headingXl">123</s-text>
+            <s-box padding="base" background="subdued" borderRadius="base">
+              <s-stack gap="small-100">
+                <s-text color="subdued">Orders</s-text>
+                <s-heading>123</s-heading>
               </s-stack>
             </s-box>
 
-            <s-box padding="base" background="surface">
-              <s-stack gap="small">
-                <s-text variant="headingMd">Customers</s-text>
-                <s-text variant="headingXl">456</s-text>
+            <s-box padding="base" background="subdued" borderRadius="base">
+              <s-stack gap="small-100">
+                <s-text color="subdued">Customers</s-text>
+                <s-heading>456</s-heading>
               </s-stack>
             </s-box>
           </s-grid>
@@ -357,29 +323,29 @@ export default function Dashboard() {
 ### 2.4 Common Components
 
 ```typescript
-// Buttons
+// Buttons - use variant for visual style, tone for semantic meaning
 <s-button variant="primary" onClick={handleSave}>Save</s-button>
-<s-button onClick={handleCancel}>Cancel</s-button>
-<s-button variant="destructive" onClick={handleDelete}>Delete</s-button>
+<s-button variant="secondary" onClick={handleCancel}>Cancel</s-button>
+<s-button tone="critical" onClick={handleDelete}>Delete</s-button>
 
 <s-button-group>
-  <s-button>Cancel</s-button>
-  <s-button variant="primary">Save</s-button>
+  <s-button slot="secondary-actions">Cancel</s-button>
+  <s-button slot="primary-action" variant="primary">Save</s-button>
 </s-button-group>
 
-// Banners
-<s-banner status="success" heading="Order created">
+// Banners - use tone (not status)
+<s-banner tone="success" heading="Order created">
   Your order has been created successfully.
 </s-banner>
 
-<s-banner status="critical" heading="Error">
+<s-banner tone="critical" heading="Error">
   Something went wrong. Please try again.
 </s-banner>
 
-// Badges
-<s-badge status="success">Active</s-badge>
-<s-badge status="warning">Pending</s-badge>
-<s-badge status="critical">Failed</s-badge>
+// Badges - use tone (not status)
+<s-badge tone="success">Active</s-badge>
+<s-badge tone="warning">Pending</s-badge>
+<s-badge tone="critical">Failed</s-badge>
 
 // Modal
 const [modalOpen, setModalOpen] = useState(false)
@@ -394,7 +360,7 @@ const [modalOpen, setModalOpen] = useState(false)
     <div slot="footer">
       <s-button-group>
         <s-button onClick={() => setModalOpen(false)}>Cancel</s-button>
-        <s-button variant="destructive" onClick={handleDelete}>Delete</s-button>
+        <s-button tone="critical" onClick={handleDelete}>Delete</s-button>
       </s-button-group>
     </div>
   </s-modal>
@@ -690,7 +656,7 @@ function ProductList() {
   const { data: products, isLoading, error } = useProducts({ status: 'active' })
 
   if (isLoading) return <s-spinner size="large" />
-  if (error) return <s-banner status="critical">Failed to load products</s-banner>
+  if (error) return <s-banner tone="critical">Failed to load products</s-banner>
 
   return (
     <s-page title="Products">
@@ -698,9 +664,9 @@ function ProductList() {
         <s-stack gap="base">
           {products?.map((product) => (
             <s-box key={product.id} padding="base" background="surface">
-              <s-stack direction="horizontal" gap="base">
-                <s-text variant="headingMd">{product.name}</s-text>
-                <s-badge status={product.status === 'active' ? 'success' : 'warning'}>
+              <s-stack direction="inline" gap="base">
+                <s-text type="strong">{product.name}</s-text>
+                <s-badge tone={product.status === 'active' ? 'success' : 'warning'}>
                   {product.status}
                 </s-badge>
                 <s-text>${product.price}</s-text>
@@ -1400,7 +1366,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <s-page title="Error">
           <s-section>
-            <s-banner status="critical" heading="Something went wrong">
+            <s-banner tone="critical" heading="Something went wrong">
               <s-text>Please refresh the page and try again.</s-text>
               {this.state.error && (
                 <s-text tone="subdued">{this.state.error.message}</s-text>
@@ -1426,7 +1392,7 @@ import { ErrorBoundary } from 'react-error-boundary'
 function ErrorFallback({ error, resetErrorBoundary }: { error: Error; resetErrorBoundary: () => void }) {
   return (
     <s-section>
-      <s-banner status="critical" heading="Failed to load data">
+      <s-banner tone="critical" heading="Failed to load data">
         <s-text>{error.message}</s-text>
         <s-button onClick={resetErrorBoundary}>Try again</s-button>
       </s-banner>
@@ -1493,8 +1459,8 @@ const ProductCard = memo(function ProductCard({
 }) {
   return (
     <s-box padding="base" background="surface">
-      <s-stack direction="horizontal" gap="base">
-        <s-text variant="headingMd">{product.name}</s-text>
+      <s-stack direction="inline" gap="base">
+        <s-text type="strong">{product.name}</s-text>
         <s-button onClick={() => onSelect(product.id)}>Select</s-button>
       </s-stack>
     </s-box>
@@ -1666,7 +1632,7 @@ const data = responseSchema.parse(json)
 
 // Handle loading and error states
 if (isLoading) return <s-spinner />
-if (error) return <s-banner status="critical">Error</s-banner>
+if (error) return <s-banner tone="critical">Error</s-banner>
 ```
 
 ### DON'T
@@ -1720,8 +1686,7 @@ frontend/
 |   |   +-- query-keys.ts
 |   |   +-- api-schemas.ts
 |   |   +-- safe-fetch.ts
-|   +-- types/                # TypeScript types
-|   |   +-- polaris-web-components.d.ts
+|   +-- types/                # TypeScript types (use @shopify/polaris-types package)
 |   |   +-- product.ts
 |   +-- styles/
 |       +-- index.css
@@ -1747,6 +1712,19 @@ npm uninstall @shopify/polaris @shopify/app-bridge-react
 
 # Add new dependencies
 npm install @shopify/app-bridge react-hook-form @hookform/resolvers zod
+
+# Add TypeScript types for Web Components
+npm install --save-dev @shopify/app-bridge-types @shopify/polaris-types
+```
+
+Update `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@shopify/app-bridge-types", "@shopify/polaris-types"]
+  }
+}
 ```
 
 #### Step 2: Add CDN Scripts to index.html
