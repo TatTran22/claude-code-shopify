@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Claude Code configurations optimized for Go/Fiber/Redis/React/Vite/Shopify Polaris stack",
-    "version": "1.0.1"
+    "version": "1.0.2"
   },
   "plugins": [
     {
@@ -16,7 +16,7 @@
         "repo": "TatTran22/claude-code-shopify"
       },
       "description": "Complete collection of agents, skills, hooks, commands, and rules for building Shopify apps with Go backend and React frontend",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Tat Tran",
         "email": "tattran.dev@gmail.com"
